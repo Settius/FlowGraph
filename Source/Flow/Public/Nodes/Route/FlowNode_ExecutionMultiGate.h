@@ -1,26 +1,23 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Nodes/FlowNode.h"
 #include "FlowNode_ExecutionMultiGate.generated.h"
 
 /**
- * Executes a series of pins in order.
+ * Executes a series of pins in order
  */
-UCLASS(NotBlueprintable, meta = (DisplayName = "Multi Gate", Keywords = "series, loop, random"))
+UCLASS(NotBlueprintable, meta = (DisplayName = "Multi Gate"))
 class FLOW_API UFlowNode_ExecutionMultiGate final : public UFlowNode
 {
-	GENERATED_BODY()
+	GENERATED_UCLASS_BODY()
 
-public:
-	UFlowNode_ExecutionMultiGate();
-
-protected:	
 	UPROPERTY(EditAnywhere, Category = "MultiGate")
 	bool bRandom;
 
-	/* Allow executing output pins again, without triggering Reset pin.
-	 * If set to False, every output pin can be triggered only once/ */
+	// Allow executing output pins again, without triggering Reset pin
+	// If set to False, every output pin can be triggered only once
 	UPROPERTY(EditAnywhere, Category = "MultiGate")
 	bool bLoop;
 

@@ -1,19 +1,17 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Nodes/FlowNode.h"
 #include "FlowNode_Counter.generated.h"
 
 /**
- * Counts how many times signal entered this node.
+ * Counts how many times signal entered this node
  */
 UCLASS(NotBlueprintable, meta = (DisplayName = "Counter"))
 class FLOW_API UFlowNode_Counter final : public UFlowNode
 {
-	GENERATED_BODY()
-
-public:
-	UFlowNode_Counter();
+	GENERATED_UCLASS_BODY()
 
 protected:
 	UPROPERTY(EditAnywhere, Category = "Counter", meta = (ClampMin = 2))

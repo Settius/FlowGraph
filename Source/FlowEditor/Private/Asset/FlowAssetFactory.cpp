@@ -9,11 +9,10 @@
 #include "ClassViewerModule.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/SClassPickerDialog.h"
-#include "Modules/ModuleManager.h"
 
 #define LOCTEXT_NAMESPACE "FlowAssetFactory"
 
-class FAssetClassParentFilter final : public IClassViewerFilter
+class FAssetClassParentFilter : public IClassViewerFilter
 {
 public:
 	FAssetClassParentFilter()
@@ -31,7 +30,7 @@ public:
 	/** Disallow blueprint base classes. */
 	bool bDisallowBlueprintBase;
 
-	virtual bool IsClassAllowed(const FClassViewerInitializationOptions& InInitOptions, const UClass* InClass, const TSharedRef<FClassViewerFilterFuncs> InFilterFuncs) override
+	virtual bool IsClassAllowed(const FClassViewerInitializationOptions& InInitOptions, const UClass* InClass, TSharedRef<FClassViewerFilterFuncs> InFilterFuncs) override
 	{
 		const bool bAllowed = !InClass->HasAnyClassFlags(DisallowedClassFlags) && InFilterFuncs->IfInChildOfClassesSet(AllowedChildrenOfClasses, InClass) != EFilterReturn::Failed;
 
@@ -69,16 +68,10 @@ UFlowAssetFactory::UFlowAssetFactory(const FObjectInitializer& ObjectInitializer
 
 bool UFlowAssetFactory::ConfigureProperties()
 {
-	const FText TitleText = LOCTEXT("CreateFlowAssetOptions", "Pick Flow Asset Class");
-
-	return ConfigurePropertiesInternal(TitleText);
-}
-
-bool UFlowAssetFactory::ConfigurePropertiesInternal(const FText& TitleText)
-{
-	AssetClass = GetDefault<UFlowGraphSettings>()->DefaultFlowAssetClass;
-	if (AssetClass) // Class was set in settings
+	AssetClass = UFlowGraphSettings::Get()->DefaultFlowAssetClass;;
+	if (AssetClass != nullptr)
 	{
+		// Class was selected in settings
 		return true;
 	}
 
@@ -91,12 +84,13 @@ bool UFlowAssetFactory::ConfigurePropertiesInternal(const FText& TitleText)
 
 	const TSharedPtr<FAssetClassParentFilter> Filter = MakeShareable(new FAssetClassParentFilter);
 	Filter->DisallowedClassFlags = CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists | CLASS_HideDropDown;
-	Filter->AllowedChildrenOfClasses.Add(SupportedClass);
+	Filter->AllowedChildrenOfClasses.Add(UFlowAsset::StaticClass());
 
 	Options.ClassFilters = {Filter.ToSharedRef()};
 
+	const FText TitleText = LOCTEXT("CreateFlowAssetOptions", "Pick Flow Asset Class");
 	UClass* ChosenClass = nullptr;
-	const bool bPressedOk = SClassPickerDialog::PickClass(TitleText, Options, ChosenClass, SupportedClass);
+	const bool bPressedOk = SClassPickerDialog::PickClass(TitleText, Options, ChosenClass, UFlowAsset::StaticClass());
 
 	if (bPressedOk)
 	{
@@ -108,19 +102,19 @@ bool UFlowAssetFactory::ConfigurePropertiesInternal(const FText& TitleText)
 
 UObject* UFlowAssetFactory::FactoryCreateNew(UClass* Class, UObject* InParent, FName Name, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn)
 {
-	UFlowAsset* NewFlowAsset;
-	if (AssetClass)
+	UFlowAsset* NewFlow = nullptr;
+	if (AssetClass != nullptr)
 	{
-		NewFlowAsset = NewObject<UFlowAsset>(InParent, AssetClass, Name, Flags | RF_Transactional, Context);
+		NewFlow = NewObject<UFlowAsset>(InParent, AssetClass, Name, Flags | RF_Transactional, Context);
 	}
 	else
 	{
 		// if we have no asset class, use the passed-in class instead
-		NewFlowAsset = NewObject<UFlowAsset>(InParent, Class, Name, Flags | RF_Transactional, Context);
+		NewFlow = NewObject<UFlowAsset>(InParent, Class, Name, Flags | RF_Transactional, Context);
 	}
 
-	UFlowGraph::CreateGraph(NewFlowAsset);
-	return NewFlowAsset;
+	UFlowGraph::CreateGraph(NewFlow);
+	return NewFlow;
 }
 
 #undef LOCTEXT_NAMESPACE

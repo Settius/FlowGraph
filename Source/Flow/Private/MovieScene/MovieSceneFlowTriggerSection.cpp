@@ -4,13 +4,11 @@
 
 #include "Channels/MovieSceneChannelProxy.h"
 
-#include UE_INLINE_GENERATED_CPP_BY_NAME(MovieSceneFlowTriggerSection)
-
 UMovieSceneFlowTriggerSection::UMovieSceneFlowTriggerSection(const FObjectInitializer& ObjInit)
 	: Super(ObjInit)
 {
 	bSupportsInfiniteRange = true;
-	UMovieSceneSection::SetRange(TRange<FFrameNumber>::All());
+	SetRange(TRange<FFrameNumber>::All());
 
 #if WITH_EDITOR
 	ChannelProxy = MakeShared<FMovieSceneChannelProxy>(StringChannel, FMovieSceneChannelMetaData(), TMovieSceneExternalValue<FString>::Make());

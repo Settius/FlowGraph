@@ -2,14 +2,13 @@
 
 #include "Nodes/Route/FlowNode_ExecutionMultiGate.h"
 
-#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_ExecutionMultiGate)
-
-UFlowNode_ExecutionMultiGate::UFlowNode_ExecutionMultiGate()
-	: StartIndex(INDEX_NONE)
+UFlowNode_ExecutionMultiGate::UFlowNode_ExecutionMultiGate(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+	, StartIndex(INDEX_NONE)
 {
 #if WITH_EDITOR
 	Category = TEXT("Route");
-	NodeDisplayStyle = FlowNodeStyle::Logic;
+	NodeStyle = EFlowNodeStyle::Logic;
 #endif
 
 	FString ResetPinTooltip = TEXT("Finish work of this node.");
@@ -18,7 +17,6 @@ UFlowNode_ExecutionMultiGate::UFlowNode_ExecutionMultiGate()
 
 	InputPins.Add(FFlowPin(TEXT("Reset"), ResetPinTooltip));
 	SetNumberedOutputPins(0, 1);
-	AllowedSignalModes = {EFlowSignalMode::Enabled, EFlowSignalMode::Disabled};
 }
 
 void UFlowNode_ExecutionMultiGate::ExecuteInput(const FName& PinName)
@@ -95,8 +93,6 @@ void UFlowNode_ExecutionMultiGate::Cleanup()
 {
 	NextOutput = 0;
 	Completed.Reset();
-	
-	Super::Cleanup();
 }
 
 #if WITH_EDITOR

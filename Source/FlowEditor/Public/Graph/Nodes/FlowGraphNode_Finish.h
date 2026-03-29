@@ -1,4 +1,5 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Graph/Nodes/FlowGraphNode.h"

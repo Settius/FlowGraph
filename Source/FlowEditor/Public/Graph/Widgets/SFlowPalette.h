@@ -1,13 +1,12 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "SGraphPalette.h"
 
 class FFlowAssetEditor;
 
-/**
- * Widget displaying a single Palette item.
- */
+/** Widget displaying a single item  */
 class FLOWEDITOR_API SFlowPaletteItem : public SGraphPaletteItem
 {
 public:
@@ -21,9 +20,7 @@ private:
 	virtual FText GetItemTooltip() const override;
 };
 
-/**
- * Flow-specific implementation of engine's Graph Palette, a list of nodes to place in the graph.
- */
+/** Flow Palette  */
 class FLOWEDITOR_API SFlowPalette : public SGraphPalette
 {
 public:
@@ -51,7 +48,7 @@ public:
 	void ClearGraphActionMenuSelection() const;
 
 protected:
-	TWeakPtr<FFlowAssetEditor> FlowAssetEditor;
+	TWeakPtr<FFlowAssetEditor> FlowAssetEditorPtr;
 	TArray<TSharedPtr<FString>> CategoryNames;
 	TSharedPtr<STextComboBox> CategoryComboBox;
 };

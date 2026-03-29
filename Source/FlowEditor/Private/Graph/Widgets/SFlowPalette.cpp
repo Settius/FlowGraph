@@ -9,6 +9,7 @@
 #include "FlowAsset.h"
 #include "Nodes/FlowNode.h"
 
+#include "EditorStyleSet.h"
 #include "Fonts/SlateFontInfo.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
@@ -100,21 +101,10 @@ FText SFlowPaletteItem::GetItemTooltip() const
 
 void SFlowPalette::Construct(const FArguments& InArgs, TWeakPtr<FFlowAssetEditor> InFlowAssetEditor)
 {
-	FlowAssetEditor = InFlowAssetEditor;
+	FlowAssetEditorPtr = InFlowAssetEditor;
 
 	UpdateCategoryNames();
 	UFlowGraphSchema::OnNodeListChanged.AddSP(this, &SFlowPalette::Refresh);
-
-	struct LocalUtils
-	{
-		static TSharedRef<SExpanderArrow> CreateCustomExpanderStatic(const FCustomExpanderData& ActionMenuData, bool bShowFavoriteToggle)
-		{
-			TSharedPtr<SExpanderArrow> CustomExpander;
-			// in SBlueprintSubPalette here would be a difference depending on bShowFavoriteToggle
-			SAssignNew(CustomExpander, SExpanderArrow, ActionMenuData.TableRow);
-			return CustomExpander.ToSharedRef();
-		}
-	};
 
 	this->ChildSlot
 	[
@@ -145,7 +135,6 @@ void SFlowPalette::Construct(const FArguments& InArgs, TWeakPtr<FFlowAssetEditor
 							.OnActionSelected(this, &SFlowPalette::OnActionSelected)
 							.OnCreateWidgetForAction(this, &SFlowPalette::OnCreateWidgetForAction)
 							.OnCollectAllActions(this, &SFlowPalette::CollectAllActions)
-							.OnCreateCustomRowExpander_Static(&LocalUtils::CreateCustomExpanderStatic, false)
 							.AutoExpandActionMenu(true)
 					]
 			]
@@ -194,11 +183,16 @@ TSharedRef<SWidget> SFlowPalette::OnCreateWidgetForAction(FCreateWidgetForAction
 
 void SFlowPalette::CollectAllActions(FGraphActionListBuilderBase& OutAllActions)
 {
-	ensureAlways(FlowAssetEditor.Pin() && FlowAssetEditor.Pin()->GetFlowAsset());
-	const UFlowAsset* EditedFlowAsset = FlowAssetEditor.Pin()->GetFlowAsset();
+	const UClass* AssetClass = UFlowAsset::StaticClass();
+	
+	const TSharedPtr<FFlowAssetEditor> FlowAssetEditor = FlowAssetEditorPtr.Pin();
+	if (FlowAssetEditor && FlowAssetEditor->GetFlowAsset())
+	{
+		AssetClass = FlowAssetEditor->GetFlowAsset()->GetClass();
+	}
 	
 	FGraphActionMenuBuilder ActionMenuBuilder;
-	UFlowGraphSchema::GetPaletteActions(ActionMenuBuilder, EditedFlowAsset, GetFilterCategoryName());
+	UFlowGraphSchema::GetPaletteActions(ActionMenuBuilder, AssetClass, GetFilterCategoryName());
 	OutAllActions.Append(ActionMenuBuilder);
 }
 
@@ -221,7 +215,11 @@ void SFlowPalette::OnActionSelected(const TArray<TSharedPtr<FEdGraphSchemaAction
 {
 	if (InSelectionType == ESelectInfo::OnMouseClick || InSelectionType == ESelectInfo::OnKeyPress || InSelectionType == ESelectInfo::OnNavigation || InActions.Num() == 0)
 	{
-		FlowAssetEditor.Pin()->SetUISelectionState(FFlowAssetEditor::PaletteTab);
+		const TSharedPtr<FFlowAssetEditor> FlowAssetEditor = FlowAssetEditorPtr.Pin();
+		if (FlowAssetEditor)
+		{
+			FlowAssetEditor->SetUISelectionState(FFlowAssetEditor::PaletteTab);
+		}
 	}
 }
 

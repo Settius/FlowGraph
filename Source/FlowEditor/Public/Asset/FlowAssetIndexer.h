@@ -1,8 +1,9 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
+#include "CoreMinimal.h"
 #include "IAssetIndexer.h"
-#include "UObject/Object.h"
 
 class UFlowAsset;
 class FSearchSerializer;
@@ -18,6 +19,6 @@ public:
 	virtual void IndexAsset(const UObject* InAssetObject, FSearchSerializer& Serializer) const override;
 
 private:
-	/* Variant of FBlueprintIndexer::IndexGraphs. */
+	// Variant of FBlueprintIndexer::IndexGraphs
 	void IndexGraph(const UFlowAsset* InFlowAsset, FSearchSerializer& Serializer) const;
 };

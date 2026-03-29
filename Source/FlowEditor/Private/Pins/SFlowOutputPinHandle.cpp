@@ -2,16 +2,12 @@
 
 #include "Pins/SFlowOutputPinHandle.h"
 #include "Nodes/FlowNode.h"
-#include "Pins/SFlowPinHandle.h"
-
-#include "EdGraphSchema_K2.h"
-#include "Engine/Blueprint.h"
 
 void SFlowOutputPinHandle::RefreshNameList()
 {
 	PinNames.Empty();
 
-	if (Blueprint && Blueprint->GeneratedClass && Blueprint->GeneratedClass->IsChildOf<UFlowNode>())
+	if (Blueprint && Blueprint->GeneratedClass)
 	{
 		if (UFlowNode* FlowNode = Blueprint->GeneratedClass->GetDefaultObject<UFlowNode>())
 		{

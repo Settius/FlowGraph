@@ -2,8 +2,6 @@
 
 #include "Pins/SFlowPinHandle.h"
 
-#include "ScopedTransaction.h"
-
 #define LOCTEXT_NAMESPACE "SFlowPinHandle"
 
 SFlowPinHandle::SFlowPinHandle()

@@ -1,4 +1,5 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "EdGraph/EdGraphSchema.h"
@@ -6,65 +7,50 @@
 #include "Framework/Commands/UICommandInfo.h"
 #include "Templates/SharedPointer.h"
 
-class FLOWEDITOR_API FFlowToolbarCommands : public TCommands<FFlowToolbarCommands>
+class FLOWEDITOR_API FFlowToolbarCommands final : public TCommands<FFlowToolbarCommands>
 {
 public:
 	FFlowToolbarCommands();
 
 	TSharedPtr<FUICommandInfo> RefreshAsset;
-	TSharedPtr<FUICommandInfo> ValidateAsset;
-
-	TSharedPtr<FUICommandInfo> SearchInAsset;
-	TSharedPtr<FUICommandInfo> EditAssetDefaults;
+	TSharedPtr<FUICommandInfo> GoToParentInstance;
 
 	virtual void RegisterCommands() override;
 };
 
-/**
- * Generic graph commands for the flow graph.
- */
-class FLOWEDITOR_API FFlowGraphCommands : public TCommands<FFlowGraphCommands>
+/** Generic graph commands for the flow graph */
+class FFlowGraphCommands final : public TCommands<FFlowGraphCommands>
 {
 public:
 	FFlowGraphCommands();
 
-	// Context Pins
-	TSharedPtr<FUICommandInfo> ReconstructNode;
+	/** Context Pins */
+	TSharedPtr<FUICommandInfo> RefreshContextPins;
 
-	// Pins
+	/** Pins */
 	TSharedPtr<FUICommandInfo> AddInput;
 	TSharedPtr<FUICommandInfo> AddOutput;
 	TSharedPtr<FUICommandInfo> RemovePin;
 
-	// Pin Breakpoints
+	/** Breakpoints */
 	TSharedPtr<FUICommandInfo> AddPinBreakpoint;
 	TSharedPtr<FUICommandInfo> RemovePinBreakpoint;
 	TSharedPtr<FUICommandInfo> EnablePinBreakpoint;
 	TSharedPtr<FUICommandInfo> DisablePinBreakpoint;
 	TSharedPtr<FUICommandInfo> TogglePinBreakpoint;
 
-	// Breakpoints
-	TSharedPtr<FUICommandInfo> EnableAllBreakpoints;
-	TSharedPtr<FUICommandInfo> DisableAllBreakpoints;
-	TSharedPtr<FUICommandInfo> RemoveAllBreakpoints;
-
-	// Execution Override
-	TSharedPtr<FUICommandInfo> EnableNode;
-	TSharedPtr<FUICommandInfo> DisableNode;
-	TSharedPtr<FUICommandInfo> SetPassThrough;
+	/** Execution Override */
 	TSharedPtr<FUICommandInfo> ForcePinActivation;
 
-	// Jumps
+	/** Jumps */
 	TSharedPtr<FUICommandInfo> FocusViewport;
 	TSharedPtr<FUICommandInfo> JumpToNodeDefinition;
 
 	virtual void RegisterCommands() override;
 };
 
-/**
- * Handles spawning nodes by keyboard shortcut.
- */
-class FLOWEDITOR_API FFlowSpawnNodeCommands : public TCommands<FFlowSpawnNodeCommands>
+/** Handles spawning nodes by keyboard shortcut */
+class FFlowSpawnNodeCommands : public TCommands<FFlowSpawnNodeCommands>
 {
 public:
 	FFlowSpawnNodeCommands();

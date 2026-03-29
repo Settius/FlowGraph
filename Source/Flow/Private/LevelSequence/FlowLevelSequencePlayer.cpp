@@ -5,9 +5,6 @@
 #include "Nodes/FlowNode.h"
 
 #include "DefaultLevelSequenceInstanceData.h"
-#include "Runtime/Launch/Resources/Version.h"
-
-#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowLevelSequencePlayer)
 
 UFlowLevelSequencePlayer::UFlowLevelSequencePlayer(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -15,16 +12,7 @@ UFlowLevelSequencePlayer::UFlowLevelSequencePlayer(const FObjectInitializer& Obj
 {
 }
 
-UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(
-	const UObject* WorldContextObject,
-	ULevelSequence* LevelSequence,
-	FMovieSceneSequencePlaybackSettings Settings,
-	FLevelSequenceCameraSettings CameraSettings,
-	AActor* TransformOriginActor,
-	const bool bReplicates,
-	const bool bAlwaysRelevant,
-	ALevelSequenceActor*& OutActor
-)
+UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlayer(UObject* WorldContextObject, ULevelSequence* LevelSequence, FMovieSceneSequencePlaybackSettings Settings, FLevelSequenceCameraSettings CameraSettings, AActor* TransformOriginActor, bool bReplicates, ALevelSequenceActor*& OutActor)
 {
 	if (LevelSequence == nullptr)
 	{
@@ -37,54 +25,54 @@ UFlowLevelSequencePlayer* UFlowLevelSequencePlayer::CreateFlowLevelSequencePlaye
 		return nullptr;
 	}
 
-	// Sequence Actor might be spawned exactly where playback happens
-	FTransform SpawnTransform = FTransform::Identity;
-	{
-		// apply Transform Origin
-		// https://dev.epicgames.com/documentation/en-us/unreal-engine/creating-level-sequences-with-dynamic-transforms-in-unreal-engine
-		if (TransformOriginActor)
-		{
-			// moving Level Sequence Actor might allow proper distance-based actor replication in networked games
-			SpawnTransform = TransformOriginActor->GetTransform();
-			SpawnTransform = FTransform(SpawnTransform.GetRotation(), SpawnTransform.GetLocation(), FVector::OneVector);
-		}
-	}
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.bAllowDuringConstructionScript = true;
 
-	// Create Sequence Actor
-	// We use deferred spawn, so we can set all actor properties prior to its initialization.
-	// This also helpful in case of multiplayer, since all actor settings are replicated with the spawned actor. No need to call replication just after spawn.
-	AFlowLevelSequenceActor* Actor = World->SpawnActorDeferred<AFlowLevelSequenceActor>(AFlowLevelSequenceActor::StaticClass(), SpawnTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	Actor->SetPlaybackSettings(Settings);
+	// Defer construction for autoplay so that BeginPlay() is called
+	SpawnParams.bDeferConstruction = true;
+
+	AFlowLevelSequenceActor* Actor = World->SpawnActor<AFlowLevelSequenceActor>(SpawnParams);
+
+	Actor->PlaybackSettings = Settings;
 	Actor->CameraSettings = CameraSettings;
-
-	// apply Transform Origin to spawned actor
-	if (TransformOriginActor)
-	{
-		if (UDefaultLevelSequenceInstanceData* InstanceData = Cast<UDefaultLevelSequenceInstanceData>(Actor->DefaultInstanceData))
-		{
-			Actor->bOverrideInstanceData = true;
-			InstanceData->TransformOriginActor = TransformOriginActor;
-		}
-	}
-
-	// support networking
 	if (bReplicates)
 	{
-		Actor->bReplicatePlayback = true;
-		Actor->bAlwaysRelevant = bAlwaysRelevant;
 		Actor->SetReplicatedLevelSequenceAsset(LevelSequence);
+		Actor->SetReplicatePlayback(true);
+		Actor->bAlwaysRelevant = true;
+		Actor->RPC_InitializePlayer();
 	}
 	else
 	{
 		Actor->LevelSequenceAsset = LevelSequence;
+		Actor->InitializePlayer();
 	}
-
-	// finish deferred spawn
-	Actor->FinishSpawning(SpawnTransform);
 	OutActor = Actor;
 
-	// Sequence Player is created by Level Sequence Actor
-	return Cast<UFlowLevelSequencePlayer>(Actor->GetSequencePlayer());
+	{
+		FTransform DefaultTransform;
+	
+		// apply Transform Origin
+		// https://docs.unrealengine.com/5.0/en-US/creating-level-sequences-with-dynamic-transforms-in-unreal-engine/
+		if (IsValid(TransformOriginActor))
+		{
+			if (UDefaultLevelSequenceInstanceData* InstanceData = Cast<UDefaultLevelSequenceInstanceData>(Actor->DefaultInstanceData))
+			{
+				Actor->bOverrideInstanceData = true;
+				InstanceData->TransformOriginActor = TransformOriginActor;
+
+				// moving Level Sequence Actor might allow proper distance-based actor replication in networked games
+				const FTransform OriginTransform = TransformOriginActor->GetTransform();
+				DefaultTransform = FTransform(OriginTransform.GetRotation(), OriginTransform.GetLocation(), FVector::OneVector);
+			}
+		}
+
+		Actor->FinishSpawning(DefaultTransform);
+	}
+	
+	return Cast<UFlowLevelSequencePlayer>(Actor->SequencePlayer);
 }
 
 TArray<UObject*> UFlowLevelSequencePlayer::GetEventContexts() const

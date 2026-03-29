@@ -1,42 +1,34 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 using UnrealBuildTool;
 
 public class Flow : ModuleRules
 {
-	public Flow(ReadOnlyTargetRules target) : base(target)
+	public Flow(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(
-		[
+		PublicDependencyModuleNames.AddRange(new[] 
+		{
 			"LevelSequence"
-		]);
-
-		PrivateDependencyModuleNames.AddRange(
-		[
-			"Core",
+		});
+		
+		PrivateDependencyModuleNames.AddRange(new[] 
+		{
+            "Core",
 			"CoreUObject",
-			"DeveloperSettings",
+            "DeveloperSettings",
 			"Engine",
-			"GameplayAbilities", // for FGameplayTagRequirements
-			"GameplayTags",
+            "GameplayTags",
 			"MovieScene",
 			"MovieSceneTracks",
-			"NetCore",
-			"Slate",
-			"SlateCore"
-		]);
+            "Slate",
+            "SlateCore"
+        });
 
-		if (target.Type == TargetType.Editor)
-		{
-			PublicDependencyModuleNames.AddRange(
-			[
-				"GraphEditor",
-				"MessageLog",
-				"PropertyEditor",
-				"SourceControl",
-				"UnrealEd"
-			]);
-		}
-	}
+        if (Target.Type == TargetType.Editor)
+        {
+            PublicDependencyModuleNames.Add("UnrealEd");
+        }
+    }
 }

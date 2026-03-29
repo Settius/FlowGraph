@@ -2,9 +2,8 @@
 
 #include "FlowComponent.h"
 
-#include "Asset/FlowAssetParams.h"
 #include "FlowAsset.h"
-#include "FlowLogChannels.h"
+#include "FlowModule.h"
 #include "FlowSettings.h"
 #include "FlowSubsystem.h"
 
@@ -13,11 +12,8 @@
 #include "Engine/ViewportStatsSubsystem.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
-#include "Net/Core/PushModel/PushModel.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
-
-#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowComponent)
 
 UFlowComponent::UFlowComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -36,33 +32,18 @@ void UFlowComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-#if WITH_PUSH_MODEL
-	FDoRepLifetimeParams Params;
-	Params.bIsPushBased = true;
+	DOREPLIFETIME(UFlowComponent, AddedIdentityTags);
+	DOREPLIFETIME(UFlowComponent, RemovedIdentityTags);
 
-	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, IdentityTags, Params);
-
-	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, RecentlySentNotifyTags, Params);
-	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, NotifyTagsFromGraph, Params);
-	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, NotifyTagsFromAnotherComponent, Params);
-#else
-	DOREPLIFETIME(ThisClass, IdentityTags);
-
-	DOREPLIFETIME(ThisClass, RecentlySentNotifyTags);
-	DOREPLIFETIME(ThisClass, NotifyTagsFromGraph);
-	DOREPLIFETIME(ThisClass, NotifyTagsFromAnotherComponent);
-#endif
+	DOREPLIFETIME(UFlowComponent, RecentlySentNotifyTags);
+	DOREPLIFETIME(UFlowComponent, NotifyTagsFromGraph);
+	DOREPLIFETIME(UFlowComponent, NotifyTagsFromAnotherComponent);
 }
 
 void UFlowComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	RegisterWithFlowSubsystem();
-}
-
-void UFlowComponent::RegisterWithFlowSubsystem()
-{
 	if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 	{
 		bool bComponentLoadedFromSaveGame = false;
@@ -73,39 +54,29 @@ void UFlowComponent::RegisterWithFlowSubsystem()
 
 		FlowSubsystem->RegisterComponent(this);
 
-		BeginRootFlow(bComponentLoadedFromSaveGame);
-	}
-}
-
-void UFlowComponent::BeginRootFlow(bool bComponentLoadedFromSaveGame)
-{
-	if (RootFlow)
-	{
-		if (bComponentLoadedFromSaveGame)
+		if (RootFlow)
 		{
-			LoadRootFlow();
-		}
-		else if (bAutoStartRootFlow)
-		{
-			StartRootFlow();
+			if (bComponentLoadedFromSaveGame)
+			{
+				LoadRootFlow();
+			}
+			else if (bAutoStartRootFlow)
+			{
+				StartRootFlow();
+			}
 		}
 	}
 }
 
 void UFlowComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	UnregisterWithFlowSubsystem();
-
-	Super::EndPlay(EndPlayReason);
-}
-
-void UFlowComponent::UnregisterWithFlowSubsystem()
-{
 	if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 	{
 		FlowSubsystem->FinishAllRootFlows(this, EFlowFinishPolicy::Keep);
 		FlowSubsystem->UnregisterComponent(this);
 	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void UFlowComponent::AddIdentityTag(const FGameplayTag Tag, const EFlowNetMode NetMode /* = EFlowNetMode::Authority*/)
@@ -113,12 +84,7 @@ void UFlowComponent::AddIdentityTag(const FGameplayTag Tag, const EFlowNetMode N
 	if (IsFlowNetMode(NetMode) && Tag.IsValid() && !IdentityTags.HasTagExact(Tag))
 	{
 		IdentityTags.AddTag(Tag);
-#if WITH_PUSH_MODEL
-		if (GetNetMode() < NM_Client)
-		{
-			MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, IdentityTags, this);
-		}
-#endif
+
 		if (HasBegunPlay())
 		{
 			OnIdentityTagsAdded.Broadcast(this, FGameplayTagContainer(Tag));
@@ -126,6 +92,11 @@ void UFlowComponent::AddIdentityTag(const FGameplayTag Tag, const EFlowNetMode N
 			if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 			{
 				FlowSubsystem->OnIdentityTagAdded(this, Tag);
+			}
+
+			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
+			{
+				AddedIdentityTags = FGameplayTagContainer(Tag);
 			}
 		}
 	}
@@ -146,22 +117,18 @@ void UFlowComponent::AddIdentityTags(FGameplayTagContainer Tags, const EFlowNetM
 			}
 		}
 
-		if (ValidatedTags.Num() > 0)
+		if (ValidatedTags.Num() > 0 && HasBegunPlay())
 		{
-#if WITH_PUSH_MODEL
-			if (GetNetMode() < NM_Client)
-			{
-				MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, IdentityTags, this);
-			}
-#endif
-			if (HasBegunPlay())
-			{
-				OnIdentityTagsAdded.Broadcast(this, ValidatedTags);
+			OnIdentityTagsAdded.Broadcast(this, ValidatedTags);
 
-				if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
-				{
-					FlowSubsystem->OnIdentityTagsAdded(this, ValidatedTags);
-				}
+			if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
+			{
+				FlowSubsystem->OnIdentityTagsAdded(this, ValidatedTags);
+			}
+
+			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
+			{
+				AddedIdentityTags = ValidatedTags;
 			}
 		}
 	}
@@ -172,12 +139,7 @@ void UFlowComponent::RemoveIdentityTag(const FGameplayTag Tag, const EFlowNetMod
 	if (IsFlowNetMode(NetMode) && Tag.IsValid() && IdentityTags.HasTagExact(Tag))
 	{
 		IdentityTags.RemoveTag(Tag);
-#if WITH_PUSH_MODEL
-		if (GetNetMode() < NM_Client)
-		{
-			MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, IdentityTags, this);
-		}
-#endif
+
 		if (HasBegunPlay())
 		{
 			OnIdentityTagsRemoved.Broadcast(this, FGameplayTagContainer(Tag));
@@ -185,6 +147,11 @@ void UFlowComponent::RemoveIdentityTag(const FGameplayTag Tag, const EFlowNetMod
 			if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 			{
 				FlowSubsystem->OnIdentityTagRemoved(this, Tag);
+			}
+
+			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
+			{
+				RemovedIdentityTags = FGameplayTagContainer(Tag);
 			}
 		}
 	}
@@ -205,73 +172,48 @@ void UFlowComponent::RemoveIdentityTags(FGameplayTagContainer Tags, const EFlowN
 			}
 		}
 
-		if (ValidatedTags.Num() > 0)
+		if (ValidatedTags.Num() > 0 && HasBegunPlay())
 		{
-#if WITH_PUSH_MODEL
-			if (GetNetMode() < NM_Client)
-			{
-				MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, IdentityTags, this);
-			}
-#endif
-			if (HasBegunPlay())
-			{
-				OnIdentityTagsRemoved.Broadcast(this, ValidatedTags);
+			OnIdentityTagsRemoved.Broadcast(this, ValidatedTags);
 
-				if (UFlowSubsystem* FlowSubsystem = GetWorld()->GetGameInstance()->GetSubsystem<UFlowSubsystem>())
-				{
-					FlowSubsystem->OnIdentityTagsRemoved(this, ValidatedTags);
-				}
+			if (UFlowSubsystem* FlowSubsystem = GetWorld()->GetGameInstance()->GetSubsystem<UFlowSubsystem>())
+			{
+				FlowSubsystem->OnIdentityTagsRemoved(this, ValidatedTags);
+			}
+
+			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
+			{
+				RemovedIdentityTags = ValidatedTags;
 			}
 		}
 	}
 }
 
-void UFlowComponent::OnRep_IdentityTags(const FGameplayTagContainer& PreviousTags)
+void UFlowComponent::OnRep_AddedIdentityTags()
 {
+	IdentityTags.AppendTags(AddedIdentityTags);
+	OnIdentityTagsAdded.Broadcast(this, AddedIdentityTags);
 
-	// Any tags that are now in the IdentityTags container but haven't been previously must have been added.
-	FGameplayTagContainer AddedTags;
-	for (const FGameplayTag& Tag : IdentityTags)
+	if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 	{
-		if (!PreviousTags.HasTagExact(Tag))
-		{
-			AddedTags.AddTag(Tag);
-		}
+		FlowSubsystem->OnIdentityTagsAdded(this, AddedIdentityTags);
 	}
+}
 
-	if (AddedTags.Num() > 0)
+void UFlowComponent::OnRep_RemovedIdentityTags()
+{
+	IdentityTags.RemoveTags(RemovedIdentityTags);
+	OnIdentityTagsRemoved.Broadcast(this, RemovedIdentityTags);
+
+	if (UFlowSubsystem* FlowSubsystem = GetWorld()->GetGameInstance()->GetSubsystem<UFlowSubsystem>())
 	{
-		OnIdentityTagsAdded.Broadcast(this, AddedTags);
-
-		if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
-		{
-			FlowSubsystem->OnIdentityTagsAdded(this, AddedTags);
-		}
-	}
-
-	// Any tags that have been in the IdentityTags container previously but aren't in it anymore after the replication update must have been removed.
-	FGameplayTagContainer RemovedTags;
-	for (const FGameplayTag& Tag : PreviousTags)
-	{
-		if (!IdentityTags.HasTagExact(Tag))
-		{
-			RemovedTags.AddTag(Tag);
-		}
-	}
-	if (RemovedTags.Num() > 0)
-	{
-		OnIdentityTagsRemoved.Broadcast(this, RemovedTags);
-
-		if (UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
-		{
-			FlowSubsystem->OnIdentityTagsRemoved(this, RemovedTags);
-		}
+		FlowSubsystem->OnIdentityTagsRemoved(this, RemovedIdentityTags);
 	}
 }
 
 void UFlowComponent::VerifyIdentityTags() const
 {
-	if (IdentityTags.IsEmpty() && GetDefault<UFlowSettings>()->bWarnAboutMissingIdentityTags)
+	if (IdentityTags.IsEmpty() && UFlowSettings::Get()->bWarnAboutMissingIdentityTags)
 	{
 		FString Message = TEXT("Missing Identity Tags on the Flow Component creating Flow Asset instance! This gonna break loading SaveGame for this component!");
 		Message.Append(LINE_TERMINATOR).Append(TEXT("If you're not using SaveSystem, you can silence this warning by unchecking bWarnAboutMissingIdentityTags flag in Flow Settings."));
@@ -285,25 +227,20 @@ void UFlowComponent::LogError(FString Message, const EFlowOnScreenMessageType On
 
 	if (OnScreenMessageType == EFlowOnScreenMessageType::Permanent)
 	{
-		if (UWorld* World = GetWorld())
+		if (GetWorld())
 		{
-			if (UViewportStatsSubsystem* StatsSubsystem = World->GetSubsystem<UViewportStatsSubsystem>())
+			if (UViewportStatsSubsystem* StatsSubsystem = GetWorld()->GetSubsystem<UViewportStatsSubsystem>())
 			{
-				StatsSubsystem->AddDisplayDelegate([WeakThis = TWeakObjectPtr<const UFlowComponent>(this), Message](FText& OutText, FLinearColor& OutColor)
+				StatsSubsystem->AddDisplayDelegate([this, Message](FText& OutText, FLinearColor& OutColor)
 				{
-					if (WeakThis.Get())
-					{
-						OutText = FText::FromString(Message);
-						OutColor = FLinearColor::Red;
-						return true;
-					}
-
-					return false;
+					OutText = FText::FromString(Message);
+					OutColor = FLinearColor::Red;
+					return IsValid(this);
 				});
 			}
 		}
 	}
-	else if (OnScreenMessageType == EFlowOnScreenMessageType::Temporary)
+	else
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, Message);
 	}
@@ -315,15 +252,9 @@ void UFlowComponent::NotifyGraph(const FGameplayTag NotifyTag, const EFlowNetMod
 {
 	if (IsFlowNetMode(NetMode) && NotifyTag.IsValid() && HasBegunPlay())
 	{
-		// save recently notify, this allows for the retroactive check in nodes
+		// save recently notify, this allow for the retroactive check in nodes
 		// if retroactive check wouldn't be performed, this is only used by the network replication
 		RecentlySentNotifyTags = FGameplayTagContainer(NotifyTag);
-#if WITH_PUSH_MODEL
-		if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
-		{
-			MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, RecentlySentNotifyTags, this);
-		}
-#endif
 
 		OnRep_SentNotifyTags();
 	}
@@ -344,15 +275,9 @@ void UFlowComponent::BulkNotifyGraph(const FGameplayTagContainer NotifyTags, con
 
 		if (ValidatedTags.Num() > 0)
 		{
-			// save recently notify, this allows for the retroactive check in nodes
+			// save recently notify, this allow for the retroactive check in nodes
 			// if retroactive check wouldn't be performed, this is only used by the network replication
 			RecentlySentNotifyTags = ValidatedTags;
-#if WITH_PUSH_MODEL
-			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
-			{
-				MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, RecentlySentNotifyTags, this);
-			}
-#endif
 
 			OnRep_SentNotifyTags();
 		}
@@ -390,9 +315,6 @@ void UFlowComponent::NotifyFromGraph(const FGameplayTagContainer& NotifyTags, co
 			if (IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer))
 			{
 				NotifyTagsFromGraph = ValidatedTags;
-#if WITH_PUSH_MODEL
-				MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, NotifyTagsFromGraph, this);
-#endif
 			}
 		}
 	}
@@ -422,9 +344,6 @@ void UFlowComponent::NotifyActor(const FGameplayTag ActorTag, const FGameplayTag
 		{
 			NotifyTagsFromAnotherComponent.Empty();
 			NotifyTagsFromAnotherComponent.Add(FNotifyTagReplication(ActorTag, NotifyTag));
-#if WITH_PUSH_MODEL
-			MARK_PROPERTY_DIRTY_FROM_NAME(UFlowComponent, NotifyTagsFromAnotherComponent, this);
-#endif
 		}
 	}
 }
@@ -451,8 +370,7 @@ void UFlowComponent::StartRootFlow()
 		{
 			VerifyIdentityTags();
 
-			const TScriptInterface<IFlowDataPinValueSupplierInterface> RootFlowParamsAsInterface = RootFlowParams.ResolveFlowAssetParams();
-			FlowSubsystem->StartRootFlow(this, RootFlow, RootFlowParamsAsInterface, bAllowMultipleInstances);
+			FlowSubsystem->StartRootFlow(this, RootFlow, bAllowMultipleInstances);
 		}
 	}
 }
@@ -467,11 +385,9 @@ void UFlowComponent::FinishRootFlow(UFlowAsset* TemplateAsset, const EFlowFinish
 
 TSet<UFlowAsset*> UFlowComponent::GetRootInstances(const UObject* Owner) const
 {
-	const UObject* OwnerToCheck = IsValid(Owner) ? Owner : this;
-
 	if (const UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
 	{
-		return FlowSubsystem->GetRootInstancesByOwner(OwnerToCheck);
+		return FlowSubsystem->GetRootInstancesByOwner(this);
 	}
 
 	return TSet<UFlowAsset*>();
@@ -489,27 +405,6 @@ UFlowAsset* UFlowComponent::GetRootFlowInstance() const
 	}
 
 	return nullptr;
-}
-
-void UFlowComponent::TriggerRootFlowCustomInput(const FName& EventName) const
-{
-	if (RootFlow && IsFlowNetMode(RootFlowMode))
-	{
-		if (const UFlowSubsystem* FlowSubsystem = GetFlowSubsystem())
-		{
-			UFlowAsset* RootFlowInstance = FlowSubsystem->GetRootFlow(this);
-			if (IsValid(RootFlowInstance))
-			{
-				RootFlowInstance->TriggerCustomInput(EventName);
-			}
-		}
-	}
-}
-
-void UFlowComponent::DispatchRootFlowCustomEvent(UFlowAsset* RootFlowInstance, const FName& EventName)
-{
-	BP_OnRootFlowCustomEvent(RootFlowInstance, EventName);
-	OnRootFlowCustomEvent(RootFlowInstance, EventName);
 }
 
 void UFlowComponent::SaveRootFlow(TArray<FFlowAssetSaveData>& SavedFlowInstances)
@@ -530,7 +425,7 @@ void UFlowComponent::LoadRootFlow()
 	{
 		VerifyIdentityTags();
 
-		GetFlowSubsystem()->LoadRootFlow(this, RootFlow, SavedAssetInstanceName, bAllowMultipleInstances);
+		GetFlowSubsystem()->LoadRootFlow(this, RootFlow, SavedAssetInstanceName);
 		SavedAssetInstanceName = FString();
 	}
 }
@@ -601,7 +496,7 @@ bool UFlowComponent::IsFlowNetMode(const EFlowNetMode NetMode) const
 		case EFlowNetMode::Authority:
 			return GetOwner()->HasAuthority();
 		case EFlowNetMode::ClientOnly:
-			return IsNetMode(NM_Client) && GetDefault<UFlowSettings>()->bCreateFlowSubsystemOnClients;
+			return IsNetMode(NM_Client) && UFlowSettings::Get()->bCreateFlowSubsystemOnClients;
 		case EFlowNetMode::ServerOnly:
 			return IsNetMode(NM_DedicatedServer) || IsNetMode(NM_ListenServer);
 		case EFlowNetMode::SinglePlayerOnly:

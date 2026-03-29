@@ -1,4 +1,5 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Styling/SlateStyle.h"
@@ -12,7 +13,7 @@ public:
 	static void Initialize();
 	static void Shutdown();
 
-	static const FSlateBrush* GetBrush(const FName PropertyName, const ANSICHAR* Specifier = nullptr)
+	static const FSlateBrush* GetBrush(FName PropertyName, const ANSICHAR* Specifier = nullptr)
 	{
 		return Get()->GetBrush(PropertyName, Specifier);
 	}

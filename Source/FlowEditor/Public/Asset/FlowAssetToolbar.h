@@ -1,4 +1,5 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
+
 #pragma once
 
 #include "Widgets/Input/SComboBox.h"
@@ -7,133 +8,94 @@
 #include "FlowAsset.h"
 
 class FFlowAssetEditor;
-class UFlowAssetEditorContext;
 class UToolMenu;
 
-/**
- * Gathers all instances of given Flow Asset per given context.
- * Example: all instances for given client in the multiplayer game.
- */
-struct FFlowAssetInstanceContext
-{
-	FText DisplayText;
-	TArray<TSharedPtr<FObjectKey>> AssetInstances;
+//////////////////////////////////////////////////////////////////////////
+// Flow Asset Instance List
 
-	FFlowAssetInstanceContext()
-	{
-	}
-
-	explicit FFlowAssetInstanceContext(const FText& InDisplayText)
-		: DisplayText(InDisplayText)
-	{
-	}
-};
-
-/**
- * List of all instances of given Flow Asset.
- */
-class FLOWEDITOR_API SFlowAssetInstanceList : public SCompoundWidget
+class FLOWEDITOR_API SFlowAssetInstanceList final : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SFlowAssetInstanceList)
-	{
-	}
-
+	SLATE_BEGIN_ARGS(SFlowAssetInstanceList) {}
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const TWeakObjectPtr<UFlowAsset> InTemplateAsset);
 	virtual ~SFlowAssetInstanceList() override;
 
-	static EVisibility GetDebuggerVisibility();
-
-protected:
+private:
 	void RefreshInstances();
-
-	EVisibility GetContextVisibility() const;
-	TSharedRef<SWidget> OnGenerateContextWidget(TSharedPtr<FObjectKey> Item);
-	void OnContextSelectionChanged(TSharedPtr<FObjectKey> SelectedItem, ESelectInfo::Type SelectionType);
-	FText GetSelectedContextName() const;
-
-	TSharedRef<SWidget> OnGenerateInstanceWidget(TSharedPtr<FObjectKey> Item) const;
-	void OnInstanceSelectionChanged(TSharedPtr<FObjectKey> SelectedItem, ESelectInfo::Type SelectionType);
+	
+	TSharedRef<SWidget> OnGenerateWidget(TSharedPtr<FName> Item) const;
+	void OnSelectionChanged(TSharedPtr<FName> SelectedItem, ESelectInfo::Type SelectionType);
 	FText GetSelectedInstanceName() const;
-	FText JoinInstanceAndContextTexts(const FObjectKey& AssetInstance) const;
 
 	TWeakObjectPtr<UFlowAsset> TemplateAsset;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> Dropdown;
 
-	TSharedPtr<SComboBox<TSharedPtr<FObjectKey>>> ContextComboBox;
-	TSharedPtr<SComboBox<TSharedPtr<FObjectKey>>> InstanceComboBox;
+	TArray<TSharedPtr<FName>> InstanceNames;
+	TSharedPtr<FName> SelectedInstance;
 
-	TArray<TSharedPtr<FObjectKey>> Contexts;
-	TArray<TSharedPtr<FObjectKey>> Instances;
-	TMap<FObjectKey, FFlowAssetInstanceContext> InstancesPerContext;
-
-	TSharedPtr<FObjectKey> NoContext;
-	TSharedPtr<FObjectKey> SelectedContext;
-	TSharedPtr<FObjectKey> SelectedInstance;
-	
-	static FText AllContextsText;
 	static FText NoInstanceSelectedText;
 };
 
+//////////////////////////////////////////////////////////////////////////
+// Flow Asset Breadcrumb
+
 /**
- * The kind of breadcrumbs that Flow Debugger uses.
+ * The kind of breadcrumbs that Flow Debugger uses
  */
 struct FLOWEDITOR_API FFlowBreadcrumb
 {
-	const TWeakObjectPtr<const UFlowAsset> CurrentInstance;
-	const TWeakObjectPtr<const UFlowAsset> ChildInstance;
+	FString AssetPathName;
+	FName InstanceName;
 
 	FFlowBreadcrumb()
-		: CurrentInstance(nullptr)
-		, ChildInstance(nullptr)
-	{
-	}
+		: AssetPathName(FString())
+		, InstanceName(NAME_None)
+	{}
 
-	explicit FFlowBreadcrumb(const TWeakObjectPtr<const UFlowAsset> InCurrentInstance, const TWeakObjectPtr<const UFlowAsset> InChildInstance)
-		: CurrentInstance(InCurrentInstance)
-		, ChildInstance(InChildInstance)
-	{
-	}
+	FFlowBreadcrumb(const UFlowAsset* FlowAsset)
+		: AssetPathName(FlowAsset->GetTemplateAsset()->GetPathName())
+		, InstanceName(FlowAsset->GetDisplayName())
+	{}
 };
 
-/**
- * Widget displaying chain of breadcrumbs.
- */
-class FLOWEDITOR_API SFlowAssetBreadcrumb : public SCompoundWidget
+class FLOWEDITOR_API SFlowAssetBreadcrumb final : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SFlowAssetInstanceList)
-	{
-	}
-
+	SLATE_BEGIN_ARGS(SFlowAssetInstanceList) {}
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const TWeakObjectPtr<UFlowAsset> InTemplateAsset);
 
 private:
-	EVisibility GetBreadcrumbVisibility() const;
-	void FillBreadcrumb() const;
 	void OnCrumbClicked(const FFlowBreadcrumb& Item) const;
+	FText GetBreadcrumbText(const TWeakObjectPtr<UFlowAsset> FlowInstance) const;
 
 	TWeakObjectPtr<UFlowAsset> TemplateAsset;
 	TSharedPtr<SBreadcrumbTrail<FFlowBreadcrumb>> BreadcrumbTrail;
 };
 
-/**
- * Flow-specific implementation of the asset editor toolbar.
- */
-class FLOWEDITOR_API FFlowAssetToolbar : public TSharedFromThis<FFlowAssetToolbar>
+//////////////////////////////////////////////////////////////////////////
+// Flow Asset Toolbar
+
+class FLOWEDITOR_API FFlowAssetToolbar final : public TSharedFromThis<FFlowAssetToolbar>
 {
 public:
 	explicit FFlowAssetToolbar(const TSharedPtr<FFlowAssetEditor> InAssetEditor, UToolMenu* ToolbarMenu);
 
 private:
 	void BuildAssetToolbar(UToolMenu* ToolbarMenu) const;
-	static TSharedRef<SWidget> MakeDiffMenu(const UFlowAssetEditorContext* InContext);
+	TSharedRef<SWidget> MakeDiffMenu() const;
+	
+	void BuildDebuggerToolbar(UToolMenu* ToolbarMenu);
 
-	void BuildDebuggerToolbar(UToolMenu* ToolbarMenu) const;
+public:
+	TSharedPtr<SFlowAssetInstanceList> GetAssetInstanceList() const { return AssetInstanceList; }
 
 private:
 	TWeakPtr<FFlowAssetEditor> FlowAssetEditor;
+
+	TSharedPtr<SFlowAssetInstanceList> AssetInstanceList;
+	TSharedPtr<SFlowAssetBreadcrumb> Breadcrumb;
 };

@@ -1,36 +1,36 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
 
-#include "MovieScene/FlowSection.h"
+#include "FlowSection.h"
 #include "MovieScene/MovieSceneFlowRepeaterSection.h"
 #include "MovieScene/MovieSceneFlowTriggerSection.h"
 
+#include "CommonMovieSceneTools.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
+#include "MovieSceneEventUtils.h"
 #include "MovieSceneTrack.h"
 #include "Rendering/DrawElements.h"
-#include "Runtime/Launch/Resources/Version.h"
 #include "Sections/MovieSceneEventSection.h"
 #include "SequencerSectionPainter.h"
 #include "SequencerTimeSliderController.h"
-#include "TimeToPixel.h"
 
 #define LOCTEXT_NAMESPACE "FlowSection"
 
 bool FFlowSectionBase::IsSectionSelected() const
 {
-	const TSharedPtr<ISequencer> SequencerPtr = Sequencer.Pin();
+	TSharedPtr<ISequencer> SequencerPtr = Sequencer.Pin();
 
 	TArray<UMovieSceneTrack*> SelectedTracks;
 	SequencerPtr->GetSelectedTracks(SelectedTracks);
 
-	const UMovieSceneSection* Section = WeakSection.Get();
+	UMovieSceneSection* Section = WeakSection.Get();
 	UMovieSceneTrack* Track = Section ? CastChecked<UMovieSceneTrack>(Section->GetOuter()) : nullptr;
 	return Track && SelectedTracks.Contains(Track);
 }
 
 void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 LayerId, const FString& InEventString, float PixelPos, bool bIsEventValid) const
 {
-	static constexpr float BoxOffsetPx = 10.f;
+	static const float BoxOffsetPx = 10.f;
 	static const TCHAR* WarningString = TEXT("\xf071");
 
 	const FSlateFontInfo FontAwesomeFont = FAppStyle::Get().GetFontStyle("FontAwesome.10");
@@ -65,7 +65,7 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 	FSlateDrawElement::MakeBox(
 		Painter.DrawElements,
 		LayerId + 1,
-		Painter.SectionGeometry.ToPaintGeometry(BoxSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset)))),
+		Painter.SectionGeometry.ToPaintGeometry(BoxOffset, BoxSize),
 		FAppStyle::GetBrush("WhiteBrush"),
 		ESlateDrawEffect::None,
 		FLinearColor::Black.CopyWithNewOpacity(0.5f)
@@ -77,7 +77,7 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 		FSlateDrawElement::MakeText(
 			Painter.DrawElements,
 			LayerId + 2,
-			Painter.SectionGeometry.ToPaintGeometry(IconSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset + IconOffset)))),
+			Painter.SectionGeometry.ToPaintGeometry(BoxOffset + IconOffset, IconSize),
 			WarningString,
 			FontAwesomeFont,
 			Painter.bParentEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
@@ -88,7 +88,7 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 	FSlateDrawElement::MakeText(
 		Painter.DrawElements,
 		LayerId + 2,
-		Painter.SectionGeometry.ToPaintGeometry(TextSize, FSlateLayoutTransform(1.0f, TransformPoint(1.0f, UE::Slate::CastToVector2f(BoxOffset + TextOffset)))),
+		Painter.SectionGeometry.ToPaintGeometry(BoxOffset + TextOffset, TextSize),
 		InEventString,
 		SmallLayoutFont,
 		Painter.bParentEnabled ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
@@ -99,7 +99,7 @@ void FFlowSectionBase::PaintEventName(FSequencerSectionPainter& Painter, int32 L
 int32 FFlowSection::OnPaintSection(FSequencerSectionPainter& Painter) const
 {
 	const int32 LayerId = Painter.PaintSectionBackground();
-	const UMovieSceneEventSection* EventSection = Cast<UMovieSceneEventSection>(WeakSection.Get());
+	UMovieSceneEventSection* EventSection = Cast<UMovieSceneEventSection>(WeakSection.Get());
 	if (!EventSection || !IsSectionSelected())
 	{
 		return LayerId;
@@ -160,7 +160,7 @@ int32 FFlowRepeaterSection::OnPaintSection(FSequencerSectionPainter& Painter) co
 {
 	const int32 LayerId = Painter.PaintSectionBackground();
 
-	const UMovieSceneFlowRepeaterSection* EventRepeaterSection = Cast<UMovieSceneFlowRepeaterSection>(WeakSection.Get());
+	UMovieSceneFlowRepeaterSection* EventRepeaterSection = Cast<UMovieSceneFlowRepeaterSection>(WeakSection.Get());
 	if (!EventRepeaterSection)
 	{
 		return LayerId;
