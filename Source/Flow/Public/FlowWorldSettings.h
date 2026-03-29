@@ -1,5 +1,4 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
-
 #pragma once
 
 #include "GameFramework/WorldSettings.h"
@@ -17,17 +16,8 @@ class FLOW_API AFlowWorldSettings : public AWorldSettings
 
 private:
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Flow", meta = (AllowPrivateAccess = "true"))
-	UFlowComponent* FlowComponent;
+	TObjectPtr<UFlowComponent> FlowComponent;
 
 public:
 	UFlowComponent* GetFlowComponent() const { return FlowComponent; }
-
-	virtual void PostLoad() override;
-	virtual void PostInitializeComponents() override;
-
-private:
-	bool IsValidInstance() const;
-	
-	UPROPERTY()
-	class UFlowAsset* FlowAsset_DEPRECATED;
 };

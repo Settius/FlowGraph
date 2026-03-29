@@ -2,14 +2,15 @@
 
 #include "Nodes/Route/FlowNode_Counter.h"
 
-UFlowNode_Counter::UFlowNode_Counter(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-	, Goal(2)
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowNode_Counter)
+
+UFlowNode_Counter::UFlowNode_Counter()
+	: Goal(2)
 	, CurrentSum(0)
 {
 #if WITH_EDITOR
 	Category = TEXT("Route");
-	NodeStyle = EFlowNodeStyle::Condition;
+	NodeDisplayStyle = FlowNodeStyle::Condition;
 #endif
 
 	InputPins.Empty();
@@ -63,6 +64,8 @@ void UFlowNode_Counter::ExecuteInput(const FName& PinName)
 void UFlowNode_Counter::Cleanup()
 {
 	CurrentSum = 0;
+
+	Super::Cleanup();
 }
 
 #if WITH_EDITOR

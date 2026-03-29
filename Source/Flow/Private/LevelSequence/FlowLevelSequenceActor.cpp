@@ -3,10 +3,13 @@
 #include "LevelSequence/FlowLevelSequenceActor.h"
 #include "LevelSequence/FlowLevelSequencePlayer.h"
 #include "Net/UnrealNetwork.h"
+#include "Runtime/Launch/Resources/Version.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowLevelSequenceActor)
 
 AFlowLevelSequenceActor::AFlowLevelSequenceActor(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer
-	  .SetDefaultSubobjectClass<UFlowLevelSequencePlayer>("AnimationPlayer"))
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UFlowLevelSequencePlayer>("AnimationPlayer"))
+	, ReplicatedLevelSequenceAsset(nullptr)
 {
 }
 
@@ -15,6 +18,12 @@ void AFlowLevelSequenceActor::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AFlowLevelSequenceActor, ReplicatedLevelSequenceAsset);
+}
+
+void AFlowLevelSequenceActor::SetPlaybackSettings(FMovieSceneSequencePlaybackSettings NewPlaybackSettings)
+{
+	PlaybackSettings = NewPlaybackSettings;
+	GetSequencePlayer()->SetPlaybackSettings(PlaybackSettings);
 }
 
 void AFlowLevelSequenceActor::SetReplicatedLevelSequenceAsset(ULevelSequence* Asset)
@@ -29,9 +38,7 @@ void AFlowLevelSequenceActor::SetReplicatedLevelSequenceAsset(ULevelSequence* As
 void AFlowLevelSequenceActor::OnRep_ReplicatedLevelSequenceAsset()
 {
 	LevelSequenceAsset = ReplicatedLevelSequenceAsset;
-}
+	ReplicatedLevelSequenceAsset = nullptr;
 
-void AFlowLevelSequenceActor::RPC_InitializePlayer_Implementation()
-{
 	InitializePlayer();
-};
+}

@@ -2,8 +2,8 @@
 
 #include "Graph/FlowGraphConnectionDrawingPolicy.h"
 
-#include "Asset/FlowAssetEditor.h"
 #include "Graph/FlowGraph.h"
+#include "Graph/FlowGraphEditor.h"
 #include "Graph/FlowGraphEditorSettings.h"
 #include "Graph/FlowGraphSchema.h"
 #include "Graph/FlowGraphSettings.h"
@@ -11,10 +11,13 @@
 #include "Graph/Nodes/FlowGraphNode.h"
 
 #include "FlowAsset.h"
+#include "FlowEditorLogChannels.h"
 #include "Graph/Nodes/FlowGraphNode_Reroute.h"
 #include "Nodes/FlowNode.h"
 
 #include "Misc/App.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(FlowGraphConnectionDrawingPolicy)
 
 FConnectionDrawingPolicy* FFlowGraphConnectionDrawingPolicyFactory::CreateConnectionPolicy(const class UEdGraphSchema* Schema, int32 InBackLayerID, int32 InFrontLayerID, float ZoomFactor, const class FSlateRect& InClippingRect, class FSlateWindowElementList& InDrawElements, class UEdGraph* InGraphObj) const
 {
@@ -32,18 +35,20 @@ FFlowGraphConnectionDrawingPolicy::FFlowGraphConnectionDrawingPolicy(int32 InBac
 	: FConnectionDrawingPolicy(InBackLayerID, InFrontLayerID, ZoomFactor, InClippingRect, InDrawElements)
 	, GraphObj(InGraphObj)
 {
+	const UFlowGraphSettings* GraphSettings = GetDefault<UFlowGraphSettings>();
+	
 	// Cache off the editor options
-	RecentWireDuration = UFlowGraphSettings::Get()->RecentWireDuration;
+	RecentWireDuration = GraphSettings->RecentWireDuration;
 
-	InactiveColor = UFlowGraphSettings::Get()->InactiveWireColor;
-	RecentColor = UFlowGraphSettings::Get()->RecentWireColor;
-	RecordedColor = UFlowGraphSettings::Get()->RecordedWireColor;
-	SelectedColor = UFlowGraphSettings::Get()->SelectedWireColor;
+	InactiveColor = GraphSettings->InactiveWireColor;
+	RecentColor = GraphSettings->RecentWireColor;
+	RecordedColor = GraphSettings->RecordedWireColor;
+	SelectedColor = GraphSettings->SelectedWireColor;
 
-	InactiveWireThickness = UFlowGraphSettings::Get()->InactiveWireThickness;
-	RecentWireThickness = UFlowGraphSettings::Get()->RecentWireThickness;
-	RecordedWireThickness = UFlowGraphSettings::Get()->RecordedWireThickness;
-	SelectedWireThickness = UFlowGraphSettings::Get()->SelectedWireThickness;
+	InactiveWireThickness = GraphSettings->InactiveWireThickness;
+	RecentWireThickness = GraphSettings->RecentWireThickness;
+	RecordedWireThickness = GraphSettings->RecordedWireThickness;
+	SelectedWireThickness = GraphSettings->SelectedWireThickness;
 
 	// Don't want to draw ending arrowheads
 	ArrowImage = nullptr;
@@ -62,6 +67,13 @@ void FFlowGraphConnectionDrawingPolicy::BuildPaths()
 
 			for (const TPair<uint8, FPinRecord>& Record : Node->GetWireRecords())
 			{
+				if (!FlowGraphNode->OutputPins.IsValidIndex(Record.Key))
+				{
+					UE_LOG(LogFlowEditor, Error, TEXT("Flow node '%s' has an invalid pin connection.  This is probably an flow editor code bug."), *Node->GetName());
+
+					continue;
+				}
+
 				if (UEdGraphPin* OutputPin = FlowGraphNode->OutputPins[Record.Key])
 				{
 					// check if Output pin is connected to anything
@@ -79,17 +91,18 @@ void FFlowGraphConnectionDrawingPolicy::BuildPaths()
 		}
 	}
 
-	if (GraphObj && (UFlowGraphEditorSettings::Get()->bHighlightInputWiresOfSelectedNodes || UFlowGraphEditorSettings::Get()->bHighlightOutputWiresOfSelectedNodes))
+	const UFlowGraphEditorSettings* GraphEditorSettings = GetDefault<UFlowGraphEditorSettings>();
+	if (GraphObj && (GraphEditorSettings->bHighlightInputWiresOfSelectedNodes || GraphEditorSettings->bHighlightOutputWiresOfSelectedNodes))
 	{
-		const TSharedPtr<FFlowAssetEditor> FlowAssetEditor = FFlowGraphUtils::GetFlowAssetEditor(GraphObj);
-		if (FlowAssetEditor.IsValid())
+		const TSharedPtr<SFlowGraphEditor> FlowGraphEditor = FFlowGraphUtils::GetFlowGraphEditor(GraphObj);
+		if (FlowGraphEditor.IsValid())
 		{
-			for (UFlowGraphNode* SelectedNode : FlowAssetEditor->GetSelectedFlowNodes())
+			for (UFlowGraphNode* SelectedNode : FlowGraphEditor->GetSelectedFlowNodes())
 			{
 				for (UEdGraphPin* Pin : SelectedNode->Pins)
 				{
-					if ((Pin->Direction == EGPD_Input && UFlowGraphEditorSettings::Get()->bHighlightInputWiresOfSelectedNodes)
-						|| (Pin->Direction == EGPD_Output && UFlowGraphEditorSettings::Get()->bHighlightOutputWiresOfSelectedNodes))
+					if ((Pin->Direction == EGPD_Input && GraphEditorSettings->bHighlightInputWiresOfSelectedNodes)
+						|| (Pin->Direction == EGPD_Output && GraphEditorSettings->bHighlightOutputWiresOfSelectedNodes))
 					{
 						for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
 						{
@@ -102,15 +115,15 @@ void FFlowGraphConnectionDrawingPolicy::BuildPaths()
 	}
 }
 
-void FFlowGraphConnectionDrawingPolicy::DrawConnection(int32 LayerId, const FVector2D& Start, const FVector2D& End, const FConnectionParams& Params)
+void FFlowGraphConnectionDrawingPolicy::DrawConnection(int32 LayerId, const FVector2f& Start, const FVector2f& End, const FConnectionParams& Params)
 {
-	switch (UFlowGraphSettings::Get()->ConnectionDrawType)
+	switch (GetDefault<UFlowGraphSettings>()->ConnectionDrawType)
 	{
 		case EFlowConnectionDrawType::Default:
 			FConnectionDrawingPolicy::DrawConnection(LayerId, Start, End, Params);
 			break;
 		case EFlowConnectionDrawType::Circuit:
-			DrawCircuitSpline(LayerId, Start, End, Params);
+			DrawCircuitSpline(LayerId, Start, End, Params);	
 			break;
 		default: ;
 	}
@@ -127,9 +140,54 @@ void FFlowGraphConnectionDrawingPolicy::DetermineWiringStyle(UEdGraphPin* Output
 	check(GraphObj);
 	const UEdGraphSchema* Schema = GraphObj->GetSchema();
 
+	if (OutputPin->bOrphanedPin || (InputPin && InputPin->bOrphanedPin))
 	{
-		//If reroute node path goes backwards, we need to flip the direction to make it look nice
-		//(all of the logic for this is basically same as in FKismetConnectionDrawingPolicy)
+		Params.WireColor = FLinearColor::Red;
+	}
+	else
+	{
+		Params.WireColor = Schema->GetPinTypeColor(OutputPin->PinType);
+
+		if (Cast<UFlowGraphNode>(OutputPin->GetOwningNode())->GetSignalMode() == EFlowSignalMode::Disabled)
+		{
+			Params.WireColor *= 0.5f;
+			Params.WireThickness = 0.5f;
+		}
+		else if (InputPin && FFlowPin::IsExecPinCategory(InputPin->PinType.PinCategory))
+		{
+			// selected paths
+			if (SelectedPaths.Contains(OutputPin) || SelectedPaths.Contains(InputPin))
+			{
+				Params.WireColor = SelectedColor;
+				Params.WireThickness = SelectedWireThickness;
+				Params.bDrawBubbles = false;
+			}
+			// recent paths
+			else if (RecentPaths.Contains(OutputPin) && RecentPaths[OutputPin] == InputPin)
+			{
+				Params.WireColor = RecentColor;
+				Params.WireThickness = RecentWireThickness;
+				Params.bDrawBubbles = true;
+			}
+			// all paths, showing graph history
+			else if (RecordedPaths.Contains(OutputPin) && RecordedPaths[OutputPin] == InputPin)
+			{
+				Params.WireColor = RecordedColor;
+				Params.WireThickness = RecordedWireThickness;
+				Params.bDrawBubbles = false;
+			}
+			// It's not followed, fade it and keep it thin
+			else
+			{
+				Params.WireColor = InactiveColor;
+				Params.WireThickness = InactiveWireThickness;
+			}
+		}
+	}
+
+	// If reroute node path goes backwards, we need to flip the direction to make it look nice
+	// (all of the logic for this is basically same as in FKismetConnectionDrawingPolicy)
+	{
 		UEdGraphNode* OutputNode = OutputPin->GetOwningNode();
 		UEdGraphNode* InputNode = (InputPin != nullptr) ? InputPin->GetOwningNode() : nullptr;
 		if (auto* OutputRerouteNode = Cast<UFlowGraphNode_Reroute>(OutputNode))
@@ -149,47 +207,11 @@ void FFlowGraphConnectionDrawingPolicy::DetermineWiringStyle(UEdGraphPin* Output
 		}
 	}
 
-	if (OutputPin->bOrphanedPin || (InputPin && InputPin->bOrphanedPin))
+	const bool bDeemphasizeUnhoveredPins = HoveredPins.Num() > 0;
+
+	if (bDeemphasizeUnhoveredPins)
 	{
-		Params.WireColor = FLinearColor::Red;
-	}
-	else
-	{
-		Params.WireColor = Schema->GetPinTypeColor(OutputPin->PinType);
-
-		if (InputPin)
-		{
-			// selected paths
-			if (SelectedPaths.Contains(OutputPin) || SelectedPaths.Contains(InputPin))
-			{
-				Params.WireColor = SelectedColor;
-				Params.WireThickness = SelectedWireThickness;
-				Params.bDrawBubbles = false;
-				return;
-			}
-
-			// recent paths
-			if (RecentPaths.Contains(OutputPin) && RecentPaths[OutputPin] == InputPin)
-			{
-				Params.WireColor = RecentColor;
-				Params.WireThickness = RecentWireThickness;
-				Params.bDrawBubbles = true;
-				return;
-			}
-
-			// all paths, showing graph history
-			if (RecordedPaths.Contains(OutputPin) && RecordedPaths[OutputPin] == InputPin)
-			{
-				Params.WireColor = RecordedColor;
-				Params.WireThickness = RecordedWireThickness;
-				Params.bDrawBubbles = false;
-				return;
-			}
-
-			// It's not followed, fade it and keep it thin
-			Params.WireColor = InactiveColor;
-			Params.WireThickness = InactiveWireThickness;
-		}
+		ApplyHoverDeemphasis(OutputPin, InputPin, /*inout*/ Params.WireThickness, /*inout*/ Params.WireColor);
 	}
 }
 
@@ -200,14 +222,14 @@ void FFlowGraphConnectionDrawingPolicy::Draw(TMap<TSharedRef<SWidget>, FArranged
 	FConnectionDrawingPolicy::Draw(InPinGeometries, ArrangedNodes);
 }
 
-void FFlowGraphConnectionDrawingPolicy::DrawCircuitSpline(const int32& LayerId, const FVector2D& Start, const FVector2D& End, const FConnectionParams& Params) const
+void FFlowGraphConnectionDrawingPolicy::DrawCircuitSpline(const int32& LayerId, const FVector2f& Start, const FVector2f& End, const FConnectionParams& Params) const
 {
-	const FVector2D StartingPoint = FVector2D(Start.X + UFlowGraphSettings::Get()->CircuitConnectionSpacing.X, Start.Y);
-	const FVector2D EndPoint = FVector2D(End.X - UFlowGraphSettings::Get()->CircuitConnectionSpacing.Y, End.Y);
-	const FVector2D ControlPoint = GetControlPoint(StartingPoint, EndPoint);
+	const FVector2f StartingPoint = FVector2f(Start.X + GetDefault<UFlowGraphSettings>()->CircuitConnectionSpacing.X, Start.Y);
+	const FVector2f EndPoint = FVector2f(End.X - GetDefault<UFlowGraphSettings>()->CircuitConnectionSpacing.Y, End.Y);
+	const FVector2f ControlPoint = GetControlPoint(StartingPoint, EndPoint);
 
-	const FVector2D StartDirection = (Params.StartDirection == EGPD_Output) ? FVector2D(1.0f, 0.0f) : FVector2D(-1.0f, 0.0f);
-	const FVector2D EndDirection = (Params.EndDirection == EGPD_Input) ? FVector2D(1.0f, 0.0f) : FVector2D(-1.0f, 0.0f);
+	const FVector2f StartDirection = (Params.StartDirection == EGPD_Output) ? FVector2f(1.0f, 0.0f) : FVector2f(-1.0f, 0.0f);
+	const FVector2f EndDirection = (Params.EndDirection == EGPD_Input) ? FVector2f(1.0f, 0.0f) : FVector2f(-1.0f, 0.0f);
 
 	DrawCircuitConnection(LayerId, Start, StartDirection, StartingPoint, EndDirection, Params);
 	DrawCircuitConnection(LayerId, StartingPoint, StartDirection, ControlPoint, EndDirection, Params);
@@ -215,7 +237,7 @@ void FFlowGraphConnectionDrawingPolicy::DrawCircuitSpline(const int32& LayerId, 
 	DrawCircuitConnection(LayerId, EndPoint, StartDirection, End, EndDirection, Params);
 }
 
-void FFlowGraphConnectionDrawingPolicy::DrawCircuitConnection(const int32& LayerId, const FVector2D& Start, const FVector2D& StartDirection, const FVector2D& End, const FVector2D& EndDirection, const FConnectionParams& Params) const
+void FFlowGraphConnectionDrawingPolicy::DrawCircuitConnection(const int32& LayerId, const FVector2f& Start, const FVector2f& StartDirection, const FVector2f& End, const FVector2f& EndDirection, const FConnectionParams& Params) const
 {
 	FSlateDrawElement::MakeDrawSpaceSpline(DrawElementsList, LayerId, Start, StartDirection, End, EndDirection, Params.WireThickness, ESlateDrawEffect::None, Params.WireColor);
 
@@ -230,7 +252,7 @@ void FFlowGraphConnectionDrawingPolicy::DrawCircuitConnection(const int32& Layer
 		{
 			const float BubbleSpacing = 64.f * ZoomFactor;
 			const float BubbleSpeed = 192.f * ZoomFactor;
-			const FVector2D BubbleSize = BubbleImage->ImageSize * ZoomFactor * 0.2f * Params.WireThickness;
+			const FVector2f BubbleSize = BubbleImage->ImageSize * ZoomFactor * 0.2f * Params.WireThickness;
 
 			const float Time = (FPlatformTime::Seconds() - GStartTime);
 			const float BubbleOffset = FMath::Fmod(Time * BubbleSpeed, BubbleSpacing);
@@ -241,7 +263,7 @@ void FFlowGraphConnectionDrawingPolicy::DrawCircuitConnection(const int32& Layer
 				if (Distance < SplineLength)
 				{
 					const float Alpha = SplineReparamTable.Eval(Distance, 0.f);
-					FVector2D BubblePos = FMath::CubicInterp(Start, StartDirection, End, EndDirection, Alpha);
+					FVector2f BubblePos = FMath::CubicInterp(Start, StartDirection, End, EndDirection, Alpha);
 					BubblePos -= (BubbleSize * 0.5f);
 
 					FSlateDrawElement::MakeBox(DrawElementsList, LayerId, FPaintGeometry(BubblePos, BubbleSize, ZoomFactor), BubbleImage, ESlateDrawEffect::None, Params.WireColor);
@@ -251,10 +273,10 @@ void FFlowGraphConnectionDrawingPolicy::DrawCircuitConnection(const int32& Layer
 	}
 }
 
-FVector2D FFlowGraphConnectionDrawingPolicy::GetControlPoint(const FVector2D& Source, const FVector2D& Target)
+FVector2f FFlowGraphConnectionDrawingPolicy::GetControlPoint(const FVector2f& Source, const FVector2f& Target)
 {
-	const FVector2D Delta = Target - Source;
-	const float Tangent = FMath::Tan(UFlowGraphSettings::Get()->CircuitConnectionAngle * (PI / 180.f));
+	const FVector2f Delta = Target - Source;
+	const float Tangent = FMath::Tan(GetDefault<UFlowGraphSettings>()->CircuitConnectionAngle * (PI / 180.f));
 
 	const float DeltaX = FMath::Abs(Delta.X);
 	const float DeltaY = FMath::Abs(Delta.Y);
@@ -262,7 +284,7 @@ FVector2D FFlowGraphConnectionDrawingPolicy::GetControlPoint(const FVector2D& So
 	const float SlopeWidth = DeltaY / Tangent;
 	if (DeltaX > SlopeWidth)
 	{
-		return Delta.X > 0.f ? FVector2D(Target.X - SlopeWidth, Source.Y) : FVector2D(Source.X - SlopeWidth, Target.Y);
+		return Delta.X > 0.f ? FVector2f(Target.X - SlopeWidth, Source.Y) : FVector2f(Source.X - SlopeWidth, Target.Y);
 	}
 
 	const float SlopeHeight = DeltaX * Tangent;
@@ -270,21 +292,21 @@ FVector2D FFlowGraphConnectionDrawingPolicy::GetControlPoint(const FVector2D& So
 	{
 		if (Delta.Y > 0.f)
 		{
-			return Delta.X < 0.f ? FVector2D(Source.X, Target.Y - SlopeHeight) : FVector2D(Target.X, Source.Y + SlopeHeight);
+			return Delta.X < 0.f ? FVector2f(Source.X, Target.Y - SlopeHeight) : FVector2f(Target.X, Source.Y + SlopeHeight);
 		}
 
 		if (Delta.X < 0.f)
 		{
-			return FVector2D(Source.X, Target.Y + SlopeHeight);
+			return FVector2f(Source.X, Target.Y + SlopeHeight);
 		}
 	}
 
-	return FVector2D(Target.X, Source.Y - SlopeHeight);
+	return FVector2f(Target.X, Source.Y - SlopeHeight);
 }
 
 bool FFlowGraphConnectionDrawingPolicy::ShouldChangeTangentForReroute(UFlowGraphNode_Reroute* Reroute)
 {
-	if (bool* pResult = RerouteToReversedDirectionMap.Find(Reroute))
+	if (const bool* pResult = RerouteToReversedDirectionMap.Find(Reroute))
 	{
 		return *pResult;
 	}
@@ -294,10 +316,10 @@ bool FFlowGraphConnectionDrawingPolicy::ShouldChangeTangentForReroute(UFlowGraph
 
 		FVector2D AverageLeftPin;
 		FVector2D AverageRightPin;
-		FVector2D CenterPin;
-		bool bCenterValid = Reroute->OutputPins.Num() == 0 ? false : FindPinCenter(Reroute->OutputPins[0], /*out*/ CenterPin);
-		bool bLeftValid = GetAverageConnectedPosition(Reroute, EGPD_Input, /*out*/ AverageLeftPin);
-		bool bRightValid = GetAverageConnectedPosition(Reroute, EGPD_Output, /*out*/ AverageRightPin);
+		FVector2D CenterPin = FVector2D::ZeroVector;
+		const bool bCenterValid = Reroute->OutputPins.Num() == 0 ? false : FindPinCenter(Reroute->OutputPins[0], /*out*/ CenterPin);
+		const bool bLeftValid = GetAverageConnectedPosition(Reroute, EGPD_Input, /*out*/ AverageLeftPin);
+		const bool bRightValid = GetAverageConnectedPosition(Reroute, EGPD_Output, /*out*/ AverageRightPin);
 
 		if (bLeftValid && bRightValid)
 		{
@@ -321,13 +343,13 @@ bool FFlowGraphConnectionDrawingPolicy::ShouldChangeTangentForReroute(UFlowGraph
 	}
 }
 
-bool FFlowGraphConnectionDrawingPolicy::FindPinCenter(UEdGraphPin* Pin, FVector2D& OutCenter) const
+bool FFlowGraphConnectionDrawingPolicy::FindPinCenter(const UEdGraphPin* Pin, FVector2D& OutCenter) const
 {
-	if (const TSharedPtr<SGraphPin>* pPinWidget = PinToPinWidgetMap.Find(Pin))
+	if (const TSharedPtr<SGraphPin>* PinWidget = PinToPinWidgetMap.Find(Pin))
 	{
-		if (FArrangedWidget* pPinEntry = PinGeometries->Find((*pPinWidget).ToSharedRef()))
+		if (const FArrangedWidget* PinEntry = PinGeometries->Find((*PinWidget).ToSharedRef()))
 		{
-			OutCenter = FGeometryHelper::CenterOf(pPinEntry->Geometry);
+			OutCenter = FGeometryHelper::CenterOf(PinEntry->Geometry);
 			return true;
 		}
 	}
@@ -346,7 +368,7 @@ bool FFlowGraphConnectionDrawingPolicy::GetAverageConnectedPosition(UFlowGraphNo
 	}
 	
 	UEdGraphPin* Pin = (Direction == EGPD_Input) ? Reroute->InputPins[0] : Reroute->OutputPins[0];
-	for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+	for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
 	{
 		FVector2D CenterPoint;
 		if (FindPinCenter(LinkedPin, /*out*/ CenterPoint))

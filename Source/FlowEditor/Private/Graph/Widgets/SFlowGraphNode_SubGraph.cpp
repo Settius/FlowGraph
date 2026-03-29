@@ -4,9 +4,8 @@
 #include "Graph/FlowGraphEditorSettings.h"
 
 #include "FlowAsset.h"
-#include "Nodes/Route/FlowNode_SubGraph.h"
+#include "Nodes/Graph/FlowNode_SubGraph.h"
 
-#include "IDocumentation.h"
 #include "SGraphPreviewer.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SToolTip.h"
@@ -15,15 +14,16 @@
 
 TSharedPtr<SToolTip> SFlowGraphNode_SubGraph::GetComplexTooltip()
 {
-	if (UFlowGraphEditorSettings::Get()->bShowSubGraphPreview && FlowGraphNode)
+	const UFlowGraphEditorSettings* GraphEditorSettings = GetDefault<UFlowGraphEditorSettings>();
+	if (GraphEditorSettings->bShowSubGraphPreview && FlowGraphNode)
 	{
-		if (UFlowNode* FlowNode = FlowGraphNode->GetFlowNode())
+		if (UFlowNode* FlowNode = Cast<UFlowNode>(FlowGraphNode->GetFlowNodeBase()))
 		{
 			const UFlowAsset* AssetToEdit = Cast<UFlowAsset>(FlowNode->GetAssetToEdit());
 			if (AssetToEdit && AssetToEdit->GetGraph())
 			{
 				TSharedPtr<SWidget> TitleBarWidget = SNullWidget::NullWidget;
-				if (UFlowGraphEditorSettings::Get()->bShowSubGraphPath)
+				if (GraphEditorSettings->bShowSubGraphPath)
 				{
 					FString CleanAssetName = AssetToEdit->GetPathName(nullptr);
 					const int32 SubStringIdx = CleanAssetName.Find(".", ESearchCase::IgnoreCase, ESearchDir::FromEnd);
@@ -40,8 +40,8 @@ TSharedPtr<SToolTip> SFlowGraphNode_SubGraph::GetComplexTooltip()
 				return SNew(SToolTip)
 				[
 					SNew(SBox)
-					.WidthOverride(UFlowGraphEditorSettings::Get()->SubGraphPreviewSize.X)
-					.HeightOverride(UFlowGraphEditorSettings::Get()->SubGraphPreviewSize.Y)
+					.WidthOverride(GraphEditorSettings->SubGraphPreviewSize.X)
+					.HeightOverride(GraphEditorSettings->SubGraphPreviewSize.Y)
 					[
 						SNew(SOverlay)
 						+SOverlay::Slot()

@@ -1,24 +1,27 @@
 // Copyright https://github.com/MothCocoon/FlowGraph/graphs/contributors
 
-/**
- * Documentation: https://github.com/MothCocoon/FlowGraph/wiki/Visual-Diff
- * Set macro value to 1, if you made these changes to the engine: https://github.com/EpicGames/UnrealEngine/pull/9659
- */
-
 #include "Asset/SFlowDiff.h"
 
-#if ENABLE_FLOW_DIFF
 #include "Asset/FlowDiffControl.h"
-
 #include "FlowAsset.h"
+#include "Graph/Nodes/FlowGraphNode.h"
 
 #include "EdGraphUtilities.h"
+#include "Editor.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Framework/Commands/GenericCommands.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/MultiBox/MultiBoxDefs.h"
+#include "Graph/Nodes/FlowGraphNode.h"
 #include "GraphDiffControl.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Internationalization/Text.h"
+#include "PropertyEditorModule.h"
 #include "SBlueprintDiff.h"
+#include "SDetailsSplitter.h"
 #include "SlateOptMacros.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Widgets/Layout/SSpacer.h"
 
 #define LOCTEXT_NAMESPACE "SFlowDiff"
 
@@ -36,11 +39,11 @@ static int32 GetCurrentIndex(SListView<TSharedPtr<FDiffSingleResult>> const& Lis
 	const TArray<TSharedPtr<FDiffSingleResult>>& Selected = ListView.GetSelectedItems();
 	if (Selected.Num() == 1)
 	{
-		for (const TSharedPtr<FDiffSingleResult>& Diff : ListViewSource)
+		for (int32 Index = 0; Index < ListViewSource.Num(); ++Index)
 		{
-			if (Diff == Selected[0])
+			if (ListViewSource[Index] == Selected[0])
 			{
-				return 0;
+				return Index;
 			}
 		}
 	}
@@ -50,23 +53,21 @@ static int32 GetCurrentIndex(SListView<TSharedPtr<FDiffSingleResult>> const& Lis
 void FlowDiffUtils::SelectNextRow(SListView<TSharedPtr<FDiffSingleResult>>& ListView, const TArray<TSharedPtr<FDiffSingleResult>>& ListViewSource)
 {
 	const int32 CurrentIndex = GetCurrentIndex(ListView, ListViewSource);
-	if (CurrentIndex == ListViewSource.Num() - 1)
+	const int32 NextIndex = CurrentIndex + 1;
+	if (ListViewSource.IsValidIndex(NextIndex))
 	{
-		return;
+		ListView.SetSelection(ListViewSource[NextIndex]);
 	}
-
-	ListView.SetSelection(ListViewSource[CurrentIndex + 1]);
 }
 
 void FlowDiffUtils::SelectPrevRow(SListView<TSharedPtr<FDiffSingleResult>>& ListView, const TArray<TSharedPtr<FDiffSingleResult>>& ListViewSource)
 {
 	const int32 CurrentIndex = GetCurrentIndex(ListView, ListViewSource);
-	if (CurrentIndex == 0)
+	const int32 PrevIndex = CurrentIndex - 1;
+	if (ListViewSource.IsValidIndex(PrevIndex))
 	{
-		return;
+		ListView.SetSelection(ListViewSource[PrevIndex]);
 	}
-
-	ListView.SetSelection(ListViewSource[CurrentIndex - 1]);
 }
 
 bool FlowDiffUtils::HasNextDifference(const SListView<TSharedPtr<FDiffSingleResult>>& ListView, const TArray<TSharedPtr<FDiffSingleResult>>& ListViewSource)
@@ -85,11 +86,13 @@ BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
 
 void SFlowDiff::Construct(const FArguments& InArgs)
 {
-	check(InArgs._OldFlow && InArgs._NewFlow);
+	check(InArgs._OldFlow || InArgs._NewFlow);
 	PanelOld.FlowAsset = InArgs._OldFlow;
 	PanelNew.FlowAsset = InArgs._NewFlow;
 	PanelOld.RevisionInfo = InArgs._OldRevision;
 	PanelNew.RevisionInfo = InArgs._NewRevision;
+	PanelOld.bIsOldPanel = true;
+	PanelNew.bIsOldPanel = false;
 
 	// sometimes we want to clearly identify the assets being diffed (when it's
 	// not the same asset in each panel)
@@ -329,7 +332,7 @@ TSharedPtr<SWindow> SFlowDiff::CreateDiffWindow(const FText WindowTitle, const U
 {
 	// sometimes we're comparing different revisions of one single asset (other 
 	// times we're comparing two completely separate assets altogether)
-	const bool bIsSingleAsset = (NewFlow->GetName() == OldFlow->GetName());
+	const bool bIsSingleAsset = !IsValid(OldFlow) || !IsValid(NewFlow) || (OldFlow->GetName() == NewFlow->GetName());
 
 	TSharedPtr<SWindow> Window = SNew(SWindow)
 		.Title(WindowTitle)
@@ -398,11 +401,19 @@ void SFlowDiff::FocusOnGraphRevisions(const FFlowGraphToDiff* Diff)
 	ResetGraphEditors();
 }
 
-void SFlowDiff::OnDiffListSelectionChanged(TSharedPtr<FDiffResultItem> TheDiff)
+void SFlowDiff::OnDiffListSelectionChanged(TSharedPtr<FFlowObjectDiffArgs> FlowObjectDiffArgs)
 {
-	check(!TheDiff->Result.OwningObjectPath.IsEmpty());
-	FocusOnGraphRevisions(FindGraphToDiffEntry(TheDiff->Result.OwningObjectPath));
-	const FDiffSingleResult Result = TheDiff->Result;
+	const TSharedPtr<FFlowObjectDiff> FlowObjectDiff = FlowObjectDiffArgs->FlowNodeDiff.Pin();
+	if (!ensure(FlowObjectDiff.IsValid()))
+	{
+		return;
+	}
+
+	check(!FlowObjectDiff->DiffResult->Result.OwningObjectPath.IsEmpty());
+	FocusOnGraphRevisions(FindGraphToDiffEntry(FlowObjectDiff->DiffResult->Result.OwningObjectPath));
+
+	const TSharedPtr<FFlowObjectDiff> ParentFlowNodeDiff = FlowObjectDiff->ParentNodeDiff.Pin();
+	const FDiffSingleResult& Result = ParentFlowNodeDiff.IsValid() ? ParentFlowNodeDiff->DiffResult->Result : FlowObjectDiff->DiffResult->Result;
 
 	const auto SafeClearSelection = [](TWeakPtr<SGraphEditor> GraphEditor)
 	{
@@ -416,6 +427,20 @@ void SFlowDiff::OnDiffListSelectionChanged(TSharedPtr<FDiffResultItem> TheDiff)
 	SafeClearSelection(PanelNew.GraphEditor);
 	SafeClearSelection(PanelOld.GraphEditor);
 
+	// PanelDefaultDetailsView can be used for displaying nodes on click. Clear out it's content before potentially trying to show an empty panel.
+	PanelOld.PanelDefaultDetailsView->SetObject(nullptr);
+	PanelNew.PanelDefaultDetailsView->SetObject(nullptr);
+
+	//Select the details panel to display below the graphs.
+	//Show an empty details panel if there is no generated details panel.
+	const TSharedPtr<SWidget> OldDetailsPanel = FlowObjectDiff->OldDetailsView.IsValid() ?
+		FlowObjectDiff->OldDetailsView->DetailsWidget() : PanelOld.PanelDefaultDetailsView.ToSharedRef();
+	const TSharedPtr<SWidget> NewDetailsPanel = FlowObjectDiff->NewDetailsView.IsValid() ?
+		FlowObjectDiff->NewDetailsView->DetailsWidget() : PanelNew.PanelDefaultDetailsView.ToSharedRef();
+
+	GraphDiffSplitter->SetBottomLeftContent(OldDetailsPanel.ToSharedRef());
+	GraphDiffSplitter->SetBottomRightContent(NewDetailsPanel.ToSharedRef());
+
 	if (Result.Pin1)
 	{
 		GetDiffPanelForNode(*Result.Pin1->GetOwningNode()).FocusDiff(*Result.Pin1);
@@ -426,6 +451,8 @@ void SFlowDiff::OnDiffListSelectionChanged(TSharedPtr<FDiffResultItem> TheDiff)
 	}
 	else if (Result.Node1)
 	{
+		FlowObjectDiff->OnSelectDiff(FlowObjectDiffArgs->PropertyDiff);
+
 		GetDiffPanelForNode(*Result.Node1).FocusDiff(*Result.Node1);
 		if (Result.Node2)
 		{
@@ -502,28 +529,36 @@ void FFlowDiffPanel::GeneratePanel(UEdGraph* Graph, TSharedPtr<TArray<FDiffSingl
 	{
 		SGraphEditor::FGraphEditorEvents InEvents;
 		{
-			const auto SelectionChangedHandler = [](const FGraphPanelSelectionSet& SelectionSet, TSharedPtr<IDetailsView> Container)
-			{
-				Container->SetObjects(SelectionSet.Array());
-			};
-
 			const auto ContextMenuHandler = [](UEdGraph* CurrentGraph, const UEdGraphNode* InGraphNode, const UEdGraphPin* InGraphPin, FMenuBuilder* MenuBuilder, bool bIsDebugging)
 			{
 				MenuBuilder->AddMenuEntry(FGenericCommands::Get().Copy);
 				return FActionMenuContent(MenuBuilder->MakeWidget());
 			};
 
-			InEvents.OnSelectionChanged = SGraphEditor::FOnSelectionChanged::CreateStatic(SelectionChangedHandler, DetailsView);
 			InEvents.OnCreateNodeOrPinMenu = SGraphEditor::FOnCreateNodeOrPinMenu::CreateStatic(ContextMenuHandler);
 		}
+
+		// Node single-click path (via SNodePanel)
+		InEvents.OnNodeSingleClicked = SGraphEditor::FOnNodeSingleClicked::CreateRaw(this, &FFlowDiffPanel::OnNodeClicked);
+
+		// Selection-change path (covers sub-node/AddOn clicks)
+		InEvents.OnSelectionChanged = SGraphEditor::FOnSelectionChanged::CreateLambda([this](const FGraphPanelSelectionSet& NewSelection)
+			{
+				if (NewSelection.Num() == 1)
+				{
+					UObject* SelectedObj = NewSelection.Array()[0];
+					OnNodeClicked(SelectedObj);
+				}
+			});
 
 		if (!GraphEditorCommands.IsValid())
 		{
 			GraphEditorCommands = MakeShared<FUICommandList>();
 
-			GraphEditorCommands->MapAction(FGenericCommands::Get().Copy,
-											FExecuteAction::CreateRaw(this, &FFlowDiffPanel::CopySelectedNodes),
-											FCanExecuteAction::CreateRaw(this, &FFlowDiffPanel::CanCopyNodes)
+			GraphEditorCommands->MapAction(
+				FGenericCommands::Get().Copy,
+				FExecuteAction::CreateRaw(this, &FFlowDiffPanel::CopySelectedNodes),
+				FCanExecuteAction::CreateRaw(this, &FFlowDiffPanel::CanCopyNodes)
 			);
 		}
 
@@ -541,6 +576,31 @@ void FFlowDiffPanel::GeneratePanel(UEdGraph* Graph, TSharedPtr<TArray<FDiffSingl
 	}
 
 	GraphEditorBox->SetContent(Widget.ToSharedRef());
+}
+
+void FFlowDiffPanel::OnNodeClicked(UObject* ClickedNode)
+{
+	UFlowGraphNode* ClickedFlowGraphNode = Cast<UFlowGraphNode>(ClickedNode);
+	if (IsValid(ClickedFlowGraphNode))
+	{
+		PanelDefaultDetailsView->SetObject(ClickedFlowGraphNode->GetFlowNodeBase());
+	}
+	else
+	{
+		PanelDefaultDetailsView->SetObject(nullptr);
+	}
+	
+	if (GraphDiffSplitter.IsValid())
+	{
+		if (bIsOldPanel)
+		{
+			GraphDiffSplitter.Pin()->SetBottomLeftContent(PanelDefaultDetailsView.ToSharedRef());
+		}
+		else
+		{
+			GraphDiffSplitter.Pin()->SetBottomRightContent(PanelDefaultDetailsView.ToSharedRef());
+		}
+	}
 }
 
 FGraphPanelSelectionSet FFlowDiffPanel::GetSelectedNodes() const
@@ -594,14 +654,13 @@ void FFlowDiffPanel::FocusDiff(const UEdGraphNode& Node) const
 
 FFlowDiffPanel& SFlowDiff::GetDiffPanelForNode(const UEdGraphNode& Node)
 {
-	const TSharedPtr<SGraphEditor> OldGraphEditorPtr = PanelOld.GraphEditor.Pin();
-	if (OldGraphEditorPtr.IsValid() && Node.GetGraph() == OldGraphEditorPtr->GetCurrentGraph())
+	const ENodeDiffType NodeDiffType = GraphToDiff->GetNodeDiffType(Node);
+
+	if (NodeDiffType == ENodeDiffType::Old)
 	{
 		return PanelOld;
 	}
-
-	const TSharedPtr<SGraphEditor> NewGraphEditorPtr = PanelNew.GraphEditor.Pin();
-	if (NewGraphEditorPtr.IsValid() && Node.GetGraph() == NewGraphEditorPtr->GetCurrentGraph())
+	if (NodeDiffType == ENodeDiffType::New)
 	{
 		return PanelNew;
 	}
@@ -635,24 +694,24 @@ void SFlowDiff::HandleGraphChanged(const FString& GraphPath)
 	const TAttribute<int32> FocusedDiffResult = TAttribute<int32>::CreateLambda(
 		[this, RealDifferencesStartIndex]()
 		{
-			int32 FocusedDiffResult = INDEX_NONE;
+			int32 FocusedIndex = INDEX_NONE;
 			if (RealDifferencesStartIndex != INDEX_NONE)
 			{
-				FocusedDiffResult = DiffTreeView::CurrentDifference(DifferencesTreeView.ToSharedRef(), RealDifferences) - RealDifferencesStartIndex;
+				FocusedIndex = DiffTreeView::CurrentDifference(DifferencesTreeView.ToSharedRef(), RealDifferences) - RealDifferencesStartIndex;
 			}
 
 			// find selected index in all the graphs, and subtract the index of the first entry in this graph
-			return FocusedDiffResult;
+			return FocusedIndex;
 		});
 
 	// only regenerate PanelOld if the old graph has changed
-	if (!PanelOld.GraphEditor.IsValid() || GraphOld != PanelOld.GraphEditor.Pin()->GetCurrentGraph())
+	if (PanelOld.FlowAsset && (!PanelOld.GraphEditor.IsValid() || GraphOld != PanelOld.GraphEditor.Pin()->GetCurrentGraph()))
 	{
 		PanelOld.GeneratePanel(GraphOld, DiffResults, FocusedDiffResult);
 	}
 
 	// only regenerate PanelNew if the old graph has changed
-	if (!PanelNew.GraphEditor.IsValid() || GraphNew != PanelNew.GraphEditor.Pin()->GetCurrentGraph())
+	if (PanelNew.FlowAsset && (!PanelNew.GraphEditor.IsValid() || GraphNew != PanelNew.GraphEditor.Pin()->GetCurrentGraph()))
 	{
 		PanelNew.GeneratePanel(GraphNew, DiffResults, FocusedDiffResult);
 	}
@@ -681,14 +740,13 @@ void SFlowDiff::GenerateDifferencesList()
 		return DetailsView;
 	};
 
-	// TODO: construct DetailsView of PanelOld and PanelNew
-	PanelOld.DetailsView = CreateInspector(PanelOld.FlowAsset);
-	PanelNew.DetailsView = CreateInspector(PanelOld.FlowAsset);
+	PanelOld.PanelDefaultDetailsView = CreateInspector(nullptr);
+	PanelNew.PanelDefaultDetailsView = CreateInspector(nullptr);
 
 	// Now that we have done the diffs, create the panel widgets
 	ModePanels.Add(DetailsMode, GenerateDetailsPanel());
 	ModePanels.Add(GraphMode, GenerateGraphPanel());
-	
+
 	DifferencesTreeView->RebuildList();
 }
 
@@ -697,20 +755,69 @@ SFlowDiff::FDiffControl SFlowDiff::GenerateDetailsPanel()
 	const TSharedPtr<FFlowAssetDiffControl> NewDiffControl = MakeShared<FFlowAssetDiffControl>(PanelOld.FlowAsset, PanelNew.FlowAsset, FOnDiffEntryFocused::CreateRaw(this, &SFlowDiff::SetCurrentMode, DetailsMode));
 	NewDiffControl->GenerateTreeEntries(PrimaryDifferencesList, RealDifferences);
 
-	SFlowDiff::FDiffControl Ret;
+	FDiffControl Ret;
 	Ret.DiffControl = NewDiffControl;
-	Ret.Widget = SNew(SSplitter)
-		.PhysicalSplitterHandleSize(10.0f)
-		+ SSplitter::Slot()
-		.Value(0.5f)
-		[
-			NewDiffControl->OldDetailsWidget()
-		]
-		+ SSplitter::Slot()
-		.Value(0.5f)
-		[
-			NewDiffControl->NewDetailsWidget()
-		];
+
+	const TSharedRef<SDetailsSplitter> Splitter = SNew(SDetailsSplitter);
+	if (PanelOld.FlowAsset)
+	{
+		if (PanelNew.FlowAsset)
+		{
+			Splitter->AddSlot(
+				SDetailsSplitter::Slot()
+				.Value(0.5f)
+				.DetailsView(NewDiffControl->GetDetailsWidget(PanelOld.FlowAsset))
+				.DifferencesWithRightPanel(NewDiffControl.ToSharedRef(), &FFlowAssetDiffControl::GetDifferencesWithRight, Cast<UObject>(PanelOld.FlowAsset))
+			);
+		}
+		else
+		{
+			Splitter->AddSlot(
+				SDetailsSplitter::Slot()
+				.Value(0.5f)
+				.DetailsView(NewDiffControl->GetDetailsWidget(PanelOld.FlowAsset))
+			);
+		}
+	}
+	else
+	{
+		Splitter->AddSlot(
+			SDetailsSplitter::Slot()
+			.Value(0.5f)
+			.DetailsView(PanelOld.PanelDefaultDetailsView)
+		);
+	}
+		
+	if ( PanelNew.FlowAsset)
+	{
+		if (PanelOld.FlowAsset)
+		{
+			Splitter->AddSlot(
+				SDetailsSplitter::Slot()
+				.Value(0.5f)
+				.DetailsView(NewDiffControl->GetDetailsWidget(PanelNew.FlowAsset))
+				.DifferencesWithRightPanel(NewDiffControl.ToSharedRef(), &FFlowAssetDiffControl::GetDifferencesWithRight, Cast<UObject>(PanelOld.FlowAsset))
+			);
+		}
+		else
+		{
+			Splitter->AddSlot(
+				SDetailsSplitter::Slot()
+				.Value(0.5f)
+				.DetailsView(NewDiffControl->GetDetailsWidget(PanelNew.FlowAsset))
+			);
+		}
+	}
+	else
+	{
+		Splitter->AddSlot(
+			SDetailsSplitter::Slot()
+			.Value(0.5f)
+			.DetailsView(PanelNew.PanelDefaultDetailsView)
+		);
+	}
+
+	Ret.Widget = Splitter;
 
 	return Ret;
 }
@@ -718,59 +825,43 @@ SFlowDiff::FDiffControl SFlowDiff::GenerateDetailsPanel()
 SFlowDiff::FDiffControl SFlowDiff::GenerateGraphPanel()
 {
 	// We only have a single permanent graph in Flow Asset
-	GraphToDiff = MakeShared<FFlowGraphToDiff>(this, PanelOld.FlowAsset->GetGraph(), PanelNew.FlowAsset->GetGraph(), PanelOld.RevisionInfo, PanelNew.RevisionInfo);
+	GraphToDiff = MakeShared<FFlowGraphToDiff>(
+		this,
+		IsValid(PanelOld.FlowAsset) ? PanelOld.FlowAsset->GetGraph() : nullptr,
+		IsValid(PanelNew.FlowAsset) ? PanelNew.FlowAsset->GetGraph() : nullptr,
+		PanelOld.RevisionInfo,
+		PanelNew.RevisionInfo);
 	GraphToDiff->GenerateTreeEntries(PrimaryDifferencesList, RealDifferences);
+
+	SAssignNew(GraphDiffSplitter,SSplitter2x2)
+		.TopLeft()[ GenerateGraphWidgetForPanel(PanelOld) ]
+		.TopRight()[ GenerateGraphWidgetForPanel(PanelNew) ]
+
+		.BottomLeft()[ PanelOld.PanelDefaultDetailsView.ToSharedRef() ]
+		.BottomRight()[ PanelNew.PanelDefaultDetailsView.ToSharedRef() ];
+
+	//the panels need a pointer to GraphDiffSplitter to update DetailsViews on click of a node.
+	PanelOld.GraphDiffSplitter = GraphDiffSplitter;
+	PanelNew.GraphDiffSplitter = GraphDiffSplitter;
+
+	static const FVector2D GraphPercentage = {.5f, .7f};
+	static const FVector2D DetailsViewPercentage = {.5f, .3f};
+	static FVector2D Percentages[] = {GraphPercentage, DetailsViewPercentage, GraphPercentage, DetailsViewPercentage};
+	GraphDiffSplitter->SetSplitterPercentages(MakeArrayView<FVector2D>(Percentages, UE_ARRAY_COUNT(Percentages)));
 	
 	FDiffControl Ret;
-
-	Ret.Widget = SNew(SVerticalBox)
-		+ SVerticalBox::Slot()
-		.FillHeight(1.f)
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.f)
-			[
-				//diff window
-				SNew(SSplitter)
-				.Orientation(Orient_Vertical)
-				+ SSplitter::Slot()
-				.Value(.8f)
-				[
-					SAssignNew(DiffGraphSplitter, SSplitter)
-					.PhysicalSplitterHandleSize(10.0f)
-					.Orientation(bVerticalSplitGraphMode ? Orient_Horizontal : Orient_Vertical)
-					+ SSplitter::Slot() // Old revision graph slot
-					[
-						GenerateGraphWidgetForPanel(PanelOld)
-					]
-					+ SSplitter::Slot() // New revision graph slot
-					[
-						GenerateGraphWidgetForPanel(PanelNew)
-					]
-				]
-				+ SSplitter::Slot()
-				.Value(.2f)
-				[
-					SNew(SSplitter)
-					.PhysicalSplitterHandleSize(10.0f)
-					+ SSplitter::Slot()
-					[
-						PanelOld.DetailsView.ToSharedRef()
-					]
-					+ SSplitter::Slot()
-					[
-						PanelNew.DetailsView.ToSharedRef()
-					]
-				]
-			]
-		];
+	Ret.Widget = GraphDiffSplitter;
 
 	return Ret;
 }
 
-TSharedRef<SOverlay> SFlowDiff::GenerateGraphWidgetForPanel(FFlowDiffPanel& OutDiffPanel) const
+TSharedRef<SWidget> SFlowDiff::GenerateGraphWidgetForPanel(FFlowDiffPanel& OutDiffPanel) const
 {
+	if (!IsValid(OutDiffPanel.FlowAsset))
+	{
+		return SNullWidget::NullWidget;
+	}
+	
 	return SNew(SOverlay)
 		+ SOverlay::Slot() // Graph slot
 		[
@@ -817,10 +908,6 @@ void SFlowDiff::SetCurrentMode(FName NewMode)
 
 	if (FoundControl)
 	{
-		// Reset inspector view
-		PanelOld.DetailsView->SetObjects(TArray<UObject*>());
-		PanelNew.DetailsView->SetObjects(TArray<UObject*>());
-
 		ModeContents->SetContent(FoundControl->Widget.ToSharedRef());
 	}
 	else
@@ -859,4 +946,3 @@ void SFlowDiff::OnModeChanged(const FName& InNewViewMode) const
 }
 
 #undef LOCTEXT_NAMESPACE
-#endif

@@ -3,13 +3,13 @@
 #include "Asset/FlowAssetIndexer.h"
 
 #include "FlowAsset.h"
-#include "Nodes/FlowNode.h"
+#include "Nodes/FlowNodeBase.h"
 
 #include "Graph/Nodes/FlowGraphNode_Reroute.h"
 
+#include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphNode_Comment.h"
-#include "Engine/SimpleConstructionScript.h"
 #include "Internationalization/Text.h"
 #include "SearchSerializer.h"
 #include "Utility/IndexerUtilities.h"
@@ -37,15 +37,6 @@ void FFlowAssetIndexer::IndexAsset(const UObject* InAssetObject, FSearchSerializ
 
 	{
 		Serializer.BeginIndexingObject(FlowAsset, TEXT("$self"));
-
-		// for (const FName& CustomInput : FlowAsset->GetCustomInputs())
-		// {
-		// 	Serializer.IndexProperty(CustomInput.ToString(), CustomInput);
-		// }
-		// for (const FName& CustomOutput : FlowAsset->GetCustomOutputs())
-		// {
-		// 	Serializer.IndexProperty(CustomOutput.ToString(), CustomOutput);
-		// }
 
 		FIndexerUtilities::IterateIndexableProperties(FlowAsset, [&Serializer](const FProperty* Property, const FString& Value)
 		{
@@ -121,14 +112,15 @@ void FFlowAssetIndexer::IndexGraph(const UFlowAsset* InFlowAsset, FSearchSeriali
 		// Indexing Flow Node
 		if (const UFlowGraphNode* FlowGraphNode = Cast<UFlowGraphNode>(Node))
 		{
-			if (const UFlowNode* FlowNode = FlowGraphNode->GetFlowNode())
+			if (const UFlowNodeBase* FlowNodeBase = FlowGraphNode->GetFlowNodeBase())
 			{
-				const FString NodeFriendlyName = FString::Printf(TEXT("%s: %s"), *FlowNode->GetClass()->GetName(), *FlowNode->GetNodeDescription());
-				Serializer.BeginIndexingObject(FlowNode, NodeFriendlyName);
-				FIndexerUtilities::IterateIndexableProperties(FlowNode, [&Serializer](const FProperty* Property, const FString& Value)
+				const FString NodeFriendlyName = FString::Printf(TEXT("%s: %s"), *FlowNodeBase->GetClass()->GetName(), *FlowNodeBase->GetNodeDescription());
+				Serializer.BeginIndexingObject(FlowNodeBase, NodeFriendlyName);
+				FIndexerUtilities::IterateIndexableProperties(FlowNodeBase, [&Serializer](const FProperty* Property, const FString& Value)
 				{
 					Serializer.IndexProperty(Property, Value);
 				});
+				FlowGraphNode->AdditionalNodeIndexing(Serializer);
 				Serializer.EndIndexingObject();
 			}
 		}
